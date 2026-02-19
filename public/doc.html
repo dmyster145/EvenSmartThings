@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Even SmartThings — Documentation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --tc-1st: #232323;
+        --tc-2nd: #7B7B7B;
+        --bc-1st: #FFFFFF;
+        --bc-2nd: #F6F6F6;
+        --bc-3rd: #EEEEEE;
+        --bc-4th: #E4E4E4;
+        --bc-accent: #FEF991;
+        --text-primary: var(--tc-1st);
+        --text-secondary: var(--tc-2nd);
+        --accent: var(--bc-accent);
+        --accent-dark: #E5E082;
+        --border: var(--bc-4th);
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html { scroll-behavior: smooth; }
+      body {
+        font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background-color: var(--bc-3rd);
+        color: var(--text-primary);
+        line-height: 1.5;
+        min-height: 100vh;
+        font-size: 15px;
+        font-weight: 400;
+        letter-spacing: -0.15px;
+      }
+      .container { max-width: 720px; margin: 0 auto; padding: 24px 12px; }
+      .header { text-align: center; padding: 24px 0; margin-bottom: 24px; }
+      .logo-text { font-size: 24px; font-weight: 600; letter-spacing: 1px; }
+      .subtitle { color: var(--text-secondary); font-size: 13px; margin-top: 8px; }
+      .toc {
+        background: var(--bc-1st);
+        border-radius: 6px;
+        padding: 16px;
+        margin-bottom: 24px;
+      }
+      .toc h2 { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 16px; }
+      .toc-list { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; }
+      .toc-list a {
+        color: var(--text-primary);
+        text-decoration: none;
+        font-size: 13px;
+        display: block;
+        padding: 6px 10px;
+        background: var(--accent);
+        border-radius: 6px;
+        transition: background 0.2s, transform 0.2s;
+      }
+      .toc-list a:hover { background: var(--accent-dark); transform: translateY(-1px); }
+      .section { margin-bottom: 12px; }
+      details { background: var(--bc-1st); border-radius: 6px; overflow: hidden; }
+      details[open] { box-shadow: 0 0 0 2px var(--accent); }
+      summary {
+        padding: 16px;
+        cursor: pointer;
+        font-weight: 500;
+        font-size: 17px;
+        letter-spacing: -0.17px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        user-select: none;
+        list-style: none;
+      }
+      summary::-webkit-details-marker { display: none; }
+      summary::before {
+        content: '▸';
+        font-size: 12px;
+        background: var(--accent);
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        transition: transform 0.2s;
+      }
+      details[open] summary::before { transform: rotate(90deg); }
+      summary:hover { background: var(--bc-2nd); }
+      .section-content { padding: 0 16px 16px; color: var(--text-secondary); }
+      .section-content h3 { color: var(--text-primary); font-size: 15px; font-weight: 500; margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+      .section-content h3:first-child { margin-top: 0; }
+      .section-content p { margin: 8px 0; font-size: 15px; font-weight: 300; }
+      .section-content ul, .section-content ol { margin: 8px 0 8px 20px; padding-left: 8px; }
+      .section-content li { margin: 6px 0; }
+      .gesture-grid { display: grid; gap: 6px; margin: 12px 0; }
+      .gesture-card { background: var(--bc-2nd); border-radius: 6px; padding: 12px 16px; font-size: 15px; font-weight: 300; }
+      .gesture-card strong { color: var(--text-primary); display: block; margin-bottom: 4px; font-weight: 500; }
+      .tip { background: var(--accent); padding: 12px 16px; margin: 12px 0; border-radius: 6px; font-size: 15px; font-weight: 300; }
+      .tip strong { color: var(--text-primary); font-weight: 500; }
+      .footer { text-align: center; padding: 24px 0; margin-top: 24px; color: var(--text-secondary); font-size: 11px; }
+      .footer a { color: var(--text-primary); text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header class="header">
+        <div class="logo-text">EVEN · SMARTTHINGS</div>
+        <p class="subtitle">Scenes and devices on Even Realities G2 Glasses</p>
+      </header>
+
+      <nav class="toc">
+        <h2>Quick Navigation</h2>
+        <ul class="toc-list">
+          <li><a href="#getting-started">Getting Started</a></li>
+          <li><a href="#scenes">Scenes</a></li>
+          <li><a href="#devices-rooms">Devices &amp; Rooms</a></li>
+          <li><a href="#favorites">Favorites</a></li>
+          <li><a href="#stats">Stats &amp; Visibility</a></li>
+          <li><a href="#renames">Custom names</a></li>
+          <li><a href="#controls">Controls</a></li>
+          <li><a href="#tips">Tips</a></li>
+        </ul>
+      </nav>
+
+      <section class="section" id="getting-started">
+        <details open>
+          <summary>Getting Started</summary>
+          <div class="section-content">
+            <h3>Welcome</h3>
+            <p>Control your SmartThings scenes and devices from your G2 glasses. Run scenes with one tap, or open a room to switch and dim devices.</p>
+            <h3>Setup</h3>
+            <p>Open this app in the Even App on your phone. Enter your SmartThings Personal Access Token (PAT) when prompted. Create a PAT at account.smartthings.com/tokens with Scenes read/execute and Devices read/control. Your token is stored on this device only.</p>
+            <h3>On the glasses</h3>
+            <p>You'll see a main menu: <strong>Scenes</strong>, <strong>Devices</strong>, and <strong>Favorites</strong> (if you've added any). In the configuration panel you can set Home screen order, list order for each list, favorites, stats visibility (toggles), and custom names. Scroll to choose, tap to open or run.</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="section" id="scenes">
+        <details>
+          <summary>Scenes</summary>
+          <div class="section-content">
+            <p>Tap <strong>Scenes</strong> on the main menu to see your SmartThings scenes. Scroll to highlight one, tap to run it. In the configuration panel, <strong>List order</strong> sets sort order per list (Home screen, Scenes, Rooms, Devices, Favorites): <strong>Alphabetical</strong>, <strong>Reverse</strong>, or <strong>Custom</strong>. For Custom: choose Custom from the dropdown, select an item, use <strong>↑ Up</strong> and <strong>↓ Down</strong> to reorder, then <strong>Done</strong>.</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="section" id="devices-rooms">
+        <details>
+          <summary>Devices &amp; Rooms</summary>
+          <div class="section-content">
+            <p>Tap <strong>Devices</strong> to see your rooms. Pick a room, then scroll through its devices. Tap a device for On/Off and (if supported) Dim. Tap <strong>All</strong> to turn all devices in the room on or off, or set a dim level for all dimmable devices.</p>
+            <p>Double-tap from a list to go back (e.g. from devices to rooms, or from a room to the main menu).</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="section" id="favorites">
+        <details>
+          <summary>Favorites</summary>
+          <div class="section-content">
+            <p><strong>Favorites</strong> is a single list that can mix scenes and devices. In the configuration panel: <strong>Add to Favorites</strong> → pick scenes and/or devices → <strong>Add selected</strong> (repeat as needed) → <strong>Done</strong>. Use <strong>Remove</strong> to take an item off the list. On the glasses, tap Favorites, then scroll and tap to run a scene or open a device. Order can be alphabetical, reverse, or custom.</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="section" id="stats">
+        <details>
+          <summary>Stats &amp; Visibility</summary>
+          <div class="section-content">
+            <p>On the right side of the glasses display you see status info: global device counts, room device counts, or per-device details (type, protocol, on/off, brightness, and capability readings). In the configuration panel, <strong>Stats visibility</strong> uses toggle switches to show or hide each stat on the glasses.</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="section" id="renames">
+        <details>
+          <summary>Custom names</summary>
+          <div class="section-content">
+            <p>Give devices, rooms, or scenes a <strong>display name</strong> used only in this app. In the configuration panel: <strong>Add custom name</strong> → choose Type (Scene, Room, or Device), pick the item, enter the name → <strong>Save</strong>. Add more if you like, then <strong>Done</strong> to close. Entries show as <em>SmartThings name &gt; your name</em> (e.g. <em>ALL Lamps: OFF &gt; Test lamps off</em>). Stored locally; SmartThings is unchanged. <strong>Clear</strong> removes a custom name.</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="section" id="controls">
+        <details>
+          <summary>Controls</summary>
+          <div class="section-content">
+            <p>Four gestures on your G2 touchpad:</p>
+            <div class="gesture-grid">
+              <div class="gesture-card"><strong>Scroll</strong> Swipe up or down to move the highlight.</div>
+              <div class="gesture-card"><strong>Tap</strong> Confirm: run a scene, open a device, or choose an option.</div>
+              <div class="gesture-card"><strong>Double Tap</strong> Go back one level.</div>
+              <div class="gesture-card"><strong>Triple Tap</strong> Jump to the last page of the list (when the list has multiple pages).</div>
+            </div>
+            <div class="tip"><strong>Tip:</strong> Double-tap from the main menu to go back to the previous view if you navigated from another app.</div>
+          </div>
+        </details>
+      </section>
+
+      <section class="section" id="tips">
+        <details>
+          <summary>Tips</summary>
+          <div class="section-content">
+            <ul>
+              <li>List order, favorites, stats toggles, and custom names are set in the configuration panel; changes apply on the glasses immediately.</li>
+              <li>Favorites can include scenes and devices; tap a scene to run it, a device to open its controls. <strong>Done</strong> closes the picker.</li>
+              <li>Custom names apply only in this app; SmartThings and automations keep the original names. List format: <em>SmartThings name &gt; your name</em>.</li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <footer class="footer">
+        <p>Even SmartThings | Built for <a href="https://evenrealities.com" target="_blank" rel="noopener">Even Realities</a> G2</p>
+      </footer>
+    </div>
+    <script>
+      function openSectionForHash() {
+        const id = window.location.hash.substring(1);
+        if (!id) return;
+        const section = document.getElementById(id);
+        if (section) {
+          const details = section.querySelector('details');
+          if (details) details.setAttribute('open', '');
+        }
+      }
+      window.addEventListener('hashchange', openSectionForHash);
+      document.addEventListener('click', function (e) {
+        const a = e.target.closest('a[href^="#"]');
+        if (!a) return;
+        const id = a.getAttribute('href')?.substring(1);
+        if (id) openSectionForHash();
+      });
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', openSectionForHash);
+      else openSectionForHash();
+    </script>
+  </body>
+</html>
