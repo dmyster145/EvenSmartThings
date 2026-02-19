@@ -40,6 +40,9 @@
         letter-spacing: -0.11px;
       }
       .container { max-width: 720px; margin: 0 auto; }
+      .header { text-align: center; padding: 24px 0; margin-bottom: 24px; }
+      .logo-text { font-size: 24px; font-weight: 600; letter-spacing: 1px; }
+      .subtitle { color: var(--text-secondary); font-size: 13px; margin-top: 8px; }
       .panel {
         background: var(--bc-1st);
         border-radius: 6px;
@@ -137,6 +140,12 @@
     <script>
       (function(){ var g = typeof globalThis !== 'undefined' ? globalThis : window; g.process = g.process || { env: {} }; })();
     </script>
+    <div class="container">
+      <header class="header">
+        <div class="logo-text">EVEN · SMARTTHINGS</div>
+        <p class="subtitle">Scenes and devices on Even Realities G2 Glasses</p>
+      </header>
+    </div>
     <div id="app"></div>
 
     <div id="config" class="container panel">
@@ -156,23 +165,6 @@
     </div>
 
     <div id="glasses-active" class="container" style="display: none;">
-      <div class="panel">
-        <h1>Scenes on your glasses</h1>
-        <p>Scroll Scenes, Devices, or Favorites on your G2 glasses; tap to run or control.</p>
-        <p class="btn-group">
-          <button type="button" id="delete-token-btn" class="secondary">Delete token</button>
-          <button type="button" id="toggle-debug-btn" class="secondary dev-only">Show debug log</button>
-        </p>
-        <div id="delete-token-confirm" class="confirm-box" style="display: none;">
-          <p>Delete the saved token? You’ll need to enter a new one to continue.</p>
-          <button type="button" id="delete-token-confirm-cancel" class="secondary">Cancel</button>
-          <button type="button" id="delete-token-confirm-do" class="negative">Delete token</button>
-        </div>
-        <div id="debug-log-container" class="debug-box" style="display: none;">
-          <div class="debug-title">Debug log</div>
-          <pre id="debug-log"></pre>
-        </div>
-      </div>
 
       <div class="panel config-section">
         <h2>List order</h2>
@@ -287,6 +279,24 @@
           <label>Display name</label>
           <input type="text" id="rename-name" placeholder="New name" maxlength="64" />
           <p class="btn-group"><button type="button" id="rename-save-btn">Save</button> <button type="button" id="rename-cancel-btn" class="secondary">Done</button></p>
+        </div>
+      </div>
+
+      <div class="panel config-section">
+        <h2>SmartThings token</h2>
+        <p>Scroll Scenes, Devices, or Favorites on your G2 glasses; tap to run or control.</p>
+        <p class="btn-group">
+          <button type="button" id="delete-token-btn" class="secondary">Delete token</button>
+          <button type="button" id="toggle-debug-btn" class="secondary dev-only">Show debug log</button>
+        </p>
+        <div id="delete-token-confirm" class="confirm-box" style="display: none;">
+          <p>Delete the saved token? You'll need to enter a new one to continue.</p>
+          <button type="button" id="delete-token-confirm-cancel" class="secondary">Cancel</button>
+          <button type="button" id="delete-token-confirm-do" class="negative">Delete token</button>
+        </div>
+        <div id="debug-log-container" class="debug-box" style="display: none;">
+          <div class="debug-title">Debug log</div>
+          <pre id="debug-log"></pre>
         </div>
       </div>
 

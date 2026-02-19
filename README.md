@@ -68,8 +68,8 @@ Readd**Control SmartThings from your Even Realities G2 glasses.** Browse scenes,
 1. **Clone and install**
 
    ```bash
-   git clone https://github.com/dmyster145/Even_SmartThings.git
-   cd Even_SmartThings
+   git clone https://github.com/dmyster145/EvenSmartThings.git
+   cd EvenSmartThings
    npm install
    ```
 
@@ -104,11 +104,11 @@ Readd**Control SmartThings from your Even Realities G2 glasses.** Browse scenes,
 
 Open the app in the Even App or a browser to see:
 
-- **SmartThings token** — Set or delete your PAT.
 - **List order** — Home, Scenes, Rooms, Devices, Favorites: alphabetical, reverse, or custom (reorder with Up/Down).
 - **Stats visibility** — Choose which stats show on the glasses (e.g. total devices, online/offline, type, on/off, brightness).
 - **Favorites** — Add scenes and devices to one “Favorites” list on the glasses.
 - **Custom names** — Override display names for scenes, rooms, or devices (this app only).
+- **SmartThings token** — Set or delete your PAT (section is above Documentation).
 - **Documentation** — Link to in-app docs (`doc.html`).
 
 ---
