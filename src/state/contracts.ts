@@ -70,8 +70,9 @@ export interface ListOrderCustomIds {
   main: MainMenuItem[];
 }
 
-/** Which stat lines to show on the glasses (per-stat keys). */
+/** Which stat lines to show on the glasses (per-stat keys). enabled: false hides the entire stats section. */
 export interface StatsVisibility {
+  enabled: boolean;
   totalDevices: boolean;
   online: boolean;
   offline: boolean;
@@ -104,6 +105,7 @@ export interface Preferences {
 export const PREFERENCES_SCHEMA_VERSION = 1;
 
 export const DEFAULT_STATS_VISIBILITY: StatsVisibility = {
+  enabled: true,
   totalDevices: true,
   online: true,
   offline: true,

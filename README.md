@@ -1,6 +1,22 @@
 # Even SmartThings
 
-Readd**Control SmartThings from your Even Realities G2 glasses.** Browse scenes, devices, and rooms in a list—scroll to select, tap to run or toggle. Set your token, list order, favorites, and custom names in the config panel (Even App or browser), then use the widget on your glasses.
+**Control SmartThings from your Even Realities G2 glasses.** Browse scenes, devices, and rooms in a list—scroll to select, tap to run or toggle. Set your token, list order, favorites, and custom names in the config panel (Even App or browser), then use the widget on your glasses.
+
+### Screenshots
+
+| Config panel | Main menu (Favorites) | Scenes |
+|--------------|------------------------|--------|
+| [![Config panel](screenshots/config.png)](screenshots/config.png) | [![Main menu](screenshots/main-screen.png)](screenshots/main-screen.png) | [![Scenes](screenshots/scenes.png)](screenshots/scenes.png) |
+
+| Favorites list | Rooms | Devices (lights) |
+|-----------------|-------|-------------------|
+| [![Favorites](screenshots/favorites.png)](screenshots/favorites.png) | [![Rooms](screenshots/rooms.png)](screenshots/rooms.png) | [![Devices lights](screenshots/devices-lights.png)](screenshots/devices-lights.png) |
+
+| Device: motion sensor | Device: dimming |
+|------------------------|------------------|
+| [![Motion sensor](screenshots/devices-motion-sensor.png)](screenshots/devices-motion-sensor.png) | [![Dimming](screenshots/devices-dimming.png)](screenshots/devices-dimming.png) |
+
+*Config panel:* list order, stats visibility (including **All** toggle), favorites, custom names, token, and documentation. *On the glasses:* main menu (Scenes, Devices, Favorites), scene list with SmartThings statuses, favorites list, rooms, device lists, device detail (e.g. motion sensor with battery/temperature), and dimming control.
 
 ---
 

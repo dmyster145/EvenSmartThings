@@ -91,13 +91,14 @@ export async function encryptPat(plaintext: string): Promise<string> {
 
 /**
  * Decrypt a value from storage. If the value is not encrypted (no "v1." prefix), returns it as-is for backwards compatibility.
+ * On decryption failure (e.g. corrupted or migrated storage), returns '' so the app shows the config form and the user can re-enter the token.
  */
 export async function decryptPat(stored: string): Promise<string> {
   if (!stored) return '';
   if (!stored.startsWith(PREFIX)) return stored;
   try {
     const combined = base64Decode(stored.slice(PREFIX.length));
-    if (combined.length < IV_LENGTH) return stored;
+    if (combined.length < IV_LENGTH) return '';
     const iv = Uint8Array.from(combined.subarray(0, IV_LENGTH));
     const ciphertext = Uint8Array.from(combined.subarray(IV_LENGTH));
     const key = await getKey();
@@ -108,6 +109,6 @@ export async function decryptPat(stored: string): Promise<string> {
     );
     return new TextDecoder().decode(decrypted);
   } catch {
-    return stored;
+    return '';
   }
 }

@@ -43,6 +43,7 @@ import {
   getOrderedFavorites,
   getDisplayName,
   getMainMenuOrderedViews,
+  parseFavoriteCompositeId,
 } from './state/selectors';
 import { EvenHubBridge } from './evenhub/bridge';
 import { encryptPatOrPlaintext, decryptPat } from './crypto/pat-storage';
@@ -172,7 +173,10 @@ function setupConfigUI(
       );
       return ordered;
     }
-    return getOrderedFavorites(state).map((f) => ({ id: f.id, displayName: f.displayName }));
+    return getOrderedFavorites(state).map((f) => ({
+      id: `${f.type}:${f.id}`,
+      displayName: f.displayName,
+    }));
   }
 
   function syncFormFromState(): void {
@@ -209,6 +213,8 @@ function setupConfigUI(
         }
       }
     });
+    const statEnabledCb = document.getElementById('stat-enabled') as HTMLInputElement | null;
+    if (statEnabledCb) statEnabledCb.checked = prefs.statsVisibility.enabled;
     STAT_KEYS.forEach((key) => {
       const cb = document.getElementById(`stat-${key}`) as HTMLInputElement | null;
       if (cb) cb.checked = prefs.statsVisibility[key];
@@ -303,7 +309,7 @@ function setupConfigUI(
                 (a.deviceName ?? '').localeCompare(b.deviceName ?? '', undefined, { sensitivity: 'base' })
               )
               .map((d) => d.deviceId);
-          else if (list === 'favorites') customIds = prefs.favoritesIds.map((f) => f.id);
+          else if (list === 'favorites') customIds = prefs.favoritesIds.map((f) => `${f.type}:${f.id}`);
         }
         store.dispatch({
           type: 'SET_LIST_ORDER',
@@ -342,12 +348,28 @@ function setupConfigUI(
       ids[idx] = ids[newIdx]!;
       ids[newIdx] = id;
       store.dispatch({ type: 'SET_LIST_ORDER', list, preference: 'custom', customIds: ids });
+      if (list === 'favorites') {
+        const newFavoritesIds = ids
+          .map((composite) => parseFavoriteCompositeId(composite))
+          .filter((f): f is { type: 'scene' | 'device'; id: string } => f !== null);
+        store.dispatch({ type: 'SET_FAVORITES', favoritesIds: newFavoritesIds });
+      }
       saveAndRefresh();
     }
     if (upBtn) upBtn.onclick = () => move(true);
     if (downBtn) downBtn.onclick = () => move(false);
     if (doneBtn && container) doneBtn.onclick = () => { container.hidden = true; };
   });
+  const statEnabledEl = document.getElementById('stat-enabled');
+  if (statEnabledEl) {
+    statEnabledEl.addEventListener('change', () => {
+      store.dispatch({
+        type: 'SET_STATS_VISIBILITY',
+        statsVisibility: { enabled: (statEnabledEl as HTMLInputElement).checked },
+      });
+      saveAndRefresh();
+    });
+  }
   STAT_KEYS.forEach((key) => {
     const cb = document.getElementById(`stat-${key}`);
     if (cb)
@@ -832,15 +854,18 @@ export async function initApp(): Promise<void> {
       // leave globalStats null
     }
     // Update only the stats panel so list selection doesn't jump to top
-    void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
+    if (store.getState().preferences.statsVisibility.enabled) {
+      void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
+    }
   }
 
   async function loadRoomStats(): Promise<void> {
     const devices = store.getState().devices;
     if (devices.length === 0) {
       store.dispatch({ type: 'STATS_ROOM', stats: null });
-      // Update only the stats panel so list selection doesn't jump to top
-      void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
+      if (store.getState().preferences.statsVisibility.enabled) {
+        void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
+      }
       return;
     }
     try {
@@ -862,8 +887,9 @@ export async function initApp(): Promise<void> {
     } catch {
       store.dispatch({ type: 'STATS_ROOM', stats: null });
     }
-    // Update only the stats panel so list selection doesn't jump to top
-    void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
+    if (store.getState().preferences.statsVisibility.enabled) {
+      void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
+    }
   }
 
   type DeviceStatusShape = {
@@ -1068,8 +1094,9 @@ export async function initApp(): Promise<void> {
     } catch {
       store.dispatch({ type: 'STATS_DEVICE', stats: null });
     }
-    // Update only the stats panel so list selection doesn't jump to top
-    void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
+    if (store.getState().preferences.statsVisibility.enabled) {
+      void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
+    }
   }
 
   const CONFIRM_DISMISS_MS = 5000;
@@ -1163,8 +1190,9 @@ export async function initApp(): Promise<void> {
             ? { ...current, brightness: level }
             : { onlineStatus: 'Unknown', switchStatus: '-', brightness: level },
         });
-        // Update only the stats panel so list selection doesn't jump to top
-        void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
+        if (store.getState().preferences.statsVisibility.enabled) {
+          void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
+        }
         // Skip refetch after setLevel — API often returns previous brightness and would overwrite the value we just set.
       }
     } catch {

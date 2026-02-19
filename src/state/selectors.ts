@@ -94,8 +94,21 @@ export interface FavoriteItem {
   scene?: SceneEntry;
 }
 
+/** Composite key for a favorite (used in custom-order UI and listOrderCustomIds.favorites). */
+export function favoriteCompositeId(type: 'scene' | 'device', id: string): string {
+  return `${type}:${id}`;
+}
+
+export function parseFavoriteCompositeId(composite: string): { type: 'scene' | 'device'; id: string } | null {
+  const sep = composite.indexOf(':');
+  if (sep <= 0 || sep === composite.length - 1) return null;
+  const type = composite.slice(0, sep) as 'scene' | 'device';
+  if (type !== 'scene' && type !== 'device') return null;
+  return { type, id: composite.slice(sep + 1) };
+}
+
 export function getOrderedFavorites(state: AppState): FavoriteItem[] {
-  const { favoritesIds, listOrder, renames } = state.preferences;
+  const { favoritesIds, listOrder, listOrderCustomIds, renames } = state.preferences;
   const scenesById = new Map(state.scenes.map((s) => [s.sceneId, s]));
   const devicesById = new Map<string, DeviceEntry>([
     ...state.allDevices.map((d): [string, DeviceEntry] => [d.deviceId, d]),
@@ -122,8 +135,20 @@ export function getOrderedFavorites(state: AppState): FavoriteItem[] {
         : (renames[b.id] ?? devicesById.get(b.id)?.deviceName ?? '');
       return nameB.localeCompare(nameA, undefined, { sensitivity: 'base' });
     });
+  } else if (listOrder.favorites === 'custom' && listOrderCustomIds.favorites.length > 0) {
+    const order = listOrderCustomIds.favorites;
+    const byKey = new Map(items.map((f) => [`${f.type}:${f.id}`, f]));
+    const ordered: Array<{ type: 'scene' | 'device'; id: string }> = [];
+    for (const key of order) {
+      const f = byKey.get(key);
+      if (f) {
+        ordered.push(f);
+        byKey.delete(key);
+      }
+    }
+    byKey.forEach((f) => ordered.push(f));
+    items = ordered;
   }
-  // custom: already in favoritesIds order
   const result: FavoriteItem[] = [];
   for (const { type, id } of items) {
     if (type === 'scene') {

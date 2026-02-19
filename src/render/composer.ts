@@ -102,6 +102,7 @@ function pushStatLine(
 }
 
 function buildStatsContent(state: AppState): string {
+  if (!vis(state).enabled) return '';
   const lines: string[] = [];
   const showGlobalStats = !isRoomContext(state) && !isDimMenu(state);
   if (showGlobalStats) {
@@ -182,6 +183,7 @@ export function getStatsContent(state: AppState): string {
 }
 
 function buildStatsTextContainers(state: AppState): TextContainerProperty[] {
+  if (!vis(state).enabled) return [];
   const stats = new TextContainerProperty({
     xPosition: LIST_WIDTH + STATS_LEFT_GAP,
     yPosition: STATS_TOP_OFFSET,
