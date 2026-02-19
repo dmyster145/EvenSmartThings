@@ -1,5 +1,5 @@
 # Excluded per project setup
-.cursor/agents/
+.cursor/
 docs/
 
 # Dependencies, build, and environment
