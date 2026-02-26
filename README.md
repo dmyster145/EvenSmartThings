@@ -2,6 +2,8 @@
 
 **Control SmartThings from your Even Realities G2 glasses.** Browse scenes, devices, and rooms in a list—scroll to select, tap to run or toggle. Set your token, list order, favorites, and custom names in the config panel (Even App or browser), then use the widget on your glasses.
 
+This project is licensed under the MIT License — see [LICENSE](LICENSE).
+
 ### Screenshots
 
 | Config panel | Main menu (Favorites) | Scenes |
@@ -152,4 +154,4 @@ Output is in `dist/`. Deploy that folder to any static host, then open the deplo
 
 ## License
 
-Private. See project terms.
+MIT — see [LICENSE](LICENSE).
