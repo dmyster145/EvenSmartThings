@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Even SmartThings — Scenes on G2</title>
+    <title>Even SmartThings — G2 Control Panel</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -143,17 +143,17 @@
     <div class="container">
       <header class="header">
         <div class="logo-text">EVEN · SMARTTHINGS</div>
-        <p class="subtitle">Scenes and devices on Even Realities G2 Glasses</p>
+        <p class="subtitle">Control SmartThings scenes and devices from Even Realities G2 glasses</p>
       </header>
     </div>
     <div id="app"></div>
 
     <div id="config" class="container panel">
-      <h1>SmartThings token</h1>
-      <p>Stored on this device only.</p>
+      <h1>Connect SmartThings</h1>
+      <p>Stored on this device only (encrypted when available).</p>
       <form id="config-form">
-        <label for="pat">Personal Access Token</label>
-        <input type="password" id="pat" name="pat" placeholder="Paste your PAT" autocomplete="off" />
+        <label for="pat">Personal Access Token (PAT)</label>
+        <input type="password" id="pat" name="pat" placeholder="Paste your SmartThings PAT" autocomplete="off" />
         <button type="submit" id="config-save-btn">Save</button>
         <p id="config-status" role="status" aria-live="polite"></p>
       </form>
@@ -161,14 +161,14 @@
 
     <div id="open-in-even" class="container panel">
       <h1>Open in Even App</h1>
-      <p>Open this page in the Even App on your phone to use the widget.</p>
+      <p>Open this URL in the Even App on your phone. A regular browser cannot connect to the glasses bridge.</p>
     </div>
 
     <div id="glasses-active" class="container" style="display: none;">
 
       <div class="panel config-section">
         <h2>List order</h2>
-        <p>How each list is sorted on the glasses. For Custom: select an item, then use Up/Down to reorder.</p>
+        <p>Set the order for each glasses list. Choose Custom to reorder items with Up/Down.</p>
         <div class="list-order-row">
           <label for="list-order-main">Home screen</label>
           <select id="list-order-main"><option value="alphabetical">Alphabetical</option><option value="reverse">Reverse</option><option value="custom">Custom</option></select>
@@ -238,7 +238,7 @@
 
       <div class="panel config-section">
         <h2>Stats visibility</h2>
-        <p>Show or hide stats on the glasses. Turn <strong>All</strong> off to hide the entire stats section (including the SmartThings / room / device header).</p>
+        <p>Choose which stats appear on the right panel. Turn <strong>All</strong> off to hide the entire stats section.</p>
         <div class="stats-toggles" id="stats-toggles">
           <label class="toggle-row"><input type="checkbox" id="stat-enabled" /><span class="toggle-switch" aria-hidden="true"></span><span class="toggle-label">All</span></label>
           <label class="toggle-row"><input type="checkbox" id="stat-totalDevices" /><span class="toggle-switch" aria-hidden="true"></span><span class="toggle-label">Total Devices</span></label>
@@ -255,7 +255,7 @@
 
       <div class="panel config-section">
         <h2>Favorites</h2>
-        <p>Scenes and devices in one list on the glasses.</p>
+        <p>Build one Favorites list with both scenes and devices.</p>
         <ul class="favorites-list" id="favorites-list"></ul>
         <p><button type="button" id="add-favorite-btn" class="secondary">Add to Favorites</button></p>
         <div id="add-favorite-picker" class="picker-box" style="display: none;">
@@ -269,7 +269,7 @@
 
       <div class="panel config-section">
         <h2>Custom names</h2>
-        <p>Display names for devices, rooms, or scenes (this app only).</p>
+        <p>Set local display names for devices, rooms, and scenes (this app only).</p>
         <ul class="renames-list" id="renames-list"></ul>
         <p><button type="button" id="add-rename-btn" class="secondary">Add custom name</button></p>
         <div id="add-rename-form" class="form-box" style="display: none;">
@@ -285,13 +285,13 @@
 
       <div class="panel config-section">
         <h2>SmartThings token</h2>
-        <p>Scroll Scenes, Devices, or Favorites on your G2 glasses; tap to run or control.</p>
+        <p>Manage the saved SmartThings token for this device.</p>
         <p class="btn-group">
           <button type="button" id="delete-token-btn" class="secondary">Delete token</button>
           <button type="button" id="toggle-debug-btn" class="secondary dev-only">Show debug log</button>
         </p>
         <div id="delete-token-confirm" class="confirm-box" style="display: none;">
-          <p>Delete the saved token? You'll need to enter a new one to continue.</p>
+          <p>Delete the saved token? You will need to enter a new one to continue.</p>
           <button type="button" id="delete-token-confirm-cancel" class="secondary">Cancel</button>
           <button type="button" id="delete-token-confirm-do" class="negative">Delete token</button>
         </div>
@@ -303,7 +303,7 @@
 
       <div class="panel config-section">
         <h2>Documentation</h2>
-        <a href="doc.html" target="_blank" rel="noopener" class="doc-link">Open Documentation</a>
+        <a href="doc.html" target="_blank" rel="noopener" class="doc-link">Open docs</a>
       </div>
 
       <div id="config-toast" class="toast" role="status" aria-live="polite" style="display: none;"></div>

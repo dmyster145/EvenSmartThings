@@ -62,7 +62,7 @@ import { ImageRawDataUpdate } from '@evenrealities/even_hub_sdk';
 
 const CONFIG_PANEL_ID = 'config';
 
-/** Persist PAT in bridge and localStorage so it survives app restarts (bridge storage may not). */
+/** Load PAT from bridge storage first, then localStorage as a fallback. */
 async function getStoredPat(hub: EvenHubBridge): Promise<string> {
   const fromBridge = await hub.getLocalStorage(PAT_STORAGE_KEY);
   if (fromBridge && fromBridge.trim()) return fromBridge;
@@ -189,7 +189,7 @@ function setupConfigUI(
       const ul = document.getElementById(`custom-order-${list}-ul`);
       if (container && ul) {
         if (prefs.listOrder[list] === 'custom') {
-          // Don't set container.hidden = false here; expansion only via dropdown click/focus/change (avoids re-expanding on glasses taps)
+          // Keep expansion user-driven so list taps do not reopen collapsed sections.
           const items = getOrderedIdsForCustomList(list);
           ul.innerHTML = '';
           items.forEach(({ id, displayName }) => {
@@ -589,7 +589,7 @@ async function runExecuteScene(
     const status = result?.status;
     const success = status === 'success';
 
-    // If API returns per-action results, use same partial logic as "all devices in room"
+    // Prefer per-action statuses when present to distinguish full vs partial success.
     const results = result?.results;
     if (results && Array.isArray(results) && results.length > 0) {
       const successCount = results.filter((r) => r?.status === 'ACCEPTED' || r?.status === 'COMPLETED').length;
@@ -717,7 +717,7 @@ export async function initApp(): Promise<void> {
       store.dispatch({ type: 'PREFERENCES_LOADED', preferences: prefs });
       refreshPage();
     } catch {
-      // keep default preferences
+      // Keep defaults when preferences are missing or unreadable.
     }
   })();
 
@@ -754,7 +754,7 @@ export async function initApp(): Promise<void> {
     useRawImages = !isLikelySimulator && hub.isRealGlasses(deviceInfo);
     useRealGlasses = hub.isRealGlasses(deviceInfo);
   } catch {
-    // non-fatal
+    // Icon preloading is optional; fallback icons are generated at render time.
   }
 
   const blankConfirmation = getBlankImageData(CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT, useRawImages);
@@ -770,7 +770,7 @@ export async function initApp(): Promise<void> {
   await pushInitialImages();
   setTimeout(() => void pushInitialImages(), 800);
 
-  // Glasses: double-tap comes as sysEvent(3); triple-tap needs listEvent + sysEvent(3) or two sysEvent(3) within the window. Longer window gives more time to complete triple-tap without rushing.
+  // Real glasses report gesture timing less consistently than the simulator.
   const TAP_WINDOW_MS = useRealGlasses ? 800 : 400;
   const TAP_COMMIT_MS = useRealGlasses ? 800 : 450;
   const SCROLL_WINDOW_MS = 400;
@@ -851,7 +851,7 @@ export async function initApp(): Promise<void> {
         stats: { total: devices.length, online, offline },
       });
     } catch {
-      // leave globalStats null
+      // Leave global stats unset if fetching fails.
     }
     // Update only the stats panel so list selection doesn't jump to top
     if (store.getState().preferences.statsVisibility.enabled) {
@@ -1153,7 +1153,7 @@ export async function initApp(): Promise<void> {
       const health = await client.devices.getHealth(deviceId);
       if (health.state === DeviceHealthState.OFFLINE) return false;
     } catch {
-      // Health check failed; treat as success (command was accepted)
+      // Command already accepted; do not fail solely because health lookup failed.
     }
     return true;
   }
@@ -1193,7 +1193,7 @@ export async function initApp(): Promise<void> {
         if (store.getState().preferences.statsVisibility.enabled) {
           void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
         }
-        // Skip refetch after setLevel — API often returns previous brightness and would overwrite the value we just set.
+        // Skip immediate refetch because SmartThings can return stale brightness right after setLevel.
       }
     } catch {
       await showConfirmation('failure');
@@ -1216,7 +1216,7 @@ export async function initApp(): Promise<void> {
         const ok = await isDeviceCommandSuccess(d.deviceId, response);
         if (ok) successCount++;
       } catch {
-        // count stays
+        // Individual failures are captured by successCount.
       }
     }
     await showConfirmation(confirmationResultFromCounts(successCount, devices.length));
@@ -1239,7 +1239,7 @@ export async function initApp(): Promise<void> {
         const ok = await isDeviceCommandSuccess(d.deviceId, response);
         if (ok) successCount++;
       } catch {
-        // count stays
+        // Individual failures are captured by successCount.
       }
     }
     await showConfirmation(confirmationResultFromCounts(successCount, devices.length));
@@ -1301,7 +1301,15 @@ export async function initApp(): Promise<void> {
         tapCount = 0;
         return;
       }
-      if (tapCount === 2 && isFirst && (listIndex === 0 || listView === 'scenes' || listView === 'devices' || listView === 'favorites' || listView === 'device-dim' || listView === 'room-all-detail' || listView === 'room-all-dim')) {
+      const canDoubleTapGoBack =
+        listIndex === 0 ||
+        listView === 'scenes' ||
+        listView === 'devices' ||
+        listView === 'favorites' ||
+        listView === 'device-dim' ||
+        listView === 'room-all-detail' ||
+        listView === 'room-all-dim';
+      if (tapCount === 2 && isFirst && canDoubleTapGoBack) {
         if (listView === 'devices') {
           store.dispatch({ type: 'NAV_VIEW', view: 'rooms' });
         } else if (listView === 'room-all-detail') {

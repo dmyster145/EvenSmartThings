@@ -1,10 +1,20 @@
 /**
- * Icon image data for glasses display.
- * Loads PNGs from /icons/ when present (ThumbsUp, ThumbsDown, ThisClose), else uses programmatic placeholders.
- * Single status area: thumbs at CONFIRMATION_WIDTH×HEIGHT (top center).
+ * Confirmation icon rendering for the glasses status container.
+ * Loads /icons overrides when present (ThumbsUp, ThumbsDown, ThisClose),
+ * then falls back to generated placeholder glyphs.
  */
 
 import { CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT } from '../state/constants';
+import {
+  BMP_SIGNATURE,
+  BMP_DIB_HEADER_SIZE,
+  BMP_HEADER_SIZE,
+  BMP_PPM,
+  BMP_COLORS_USED,
+  getBmpRowStride,
+  getBmpPixelDataSize,
+  getBmpFileSize,
+} from './bmp-constants';
 
 /** Result for confirmation icon: all success, some success (partial), or all failed. */
 export type ConfirmationResult = 'success' | 'partial' | 'failure';
@@ -70,31 +80,18 @@ export async function loadIconCache(): Promise<void> {
   iconCache.thumbPartial = thumbPartial;
 }
 
-/** 1-bit BMP file constants (same structure as Even Chess for G2 compatibility). */
-const BMP_FILE_HEADER_SIZE = 14;
-const BMP_DIB_HEADER_SIZE = 40;
-const BMP_COLOR_TABLE_SIZE = 8;
-const BMP_HEADER_SIZE = BMP_FILE_HEADER_SIZE + BMP_DIB_HEADER_SIZE + BMP_COLOR_TABLE_SIZE; // 62
-
-function getBmpRowStride(width: number): number {
-  const rowBytes = Math.ceil(width / 8);
-  return Math.ceil(rowBytes / 4) * 4;
-}
-
-const BMP_PPM = 2835;
-
-/** Convert grayscale number[] (0–255) to 1-bit BMP file as number[] for real glasses (Even Chess uses BMP). */
+/** Convert grayscale (0-255) pixels to 1-bit BMP bytes for real glasses. */
 function grayToBmp(data: number[], width: number, height: number): number[] {
   const rowStride = getBmpRowStride(width);
-  const pixelDataSize = rowStride * height;
-  const fileSize = BMP_HEADER_SIZE + pixelDataSize;
+  const pixelDataSize = getBmpPixelDataSize(width, height);
+  const fileSize = getBmpFileSize(width, height);
   const out = new Array<number>(fileSize);
   let i = 0;
-  out[i++] = 0x42; out[i++] = 0x4d;
+  out[i++] = BMP_SIGNATURE[0]; out[i++] = BMP_SIGNATURE[1];
   out[i++] = fileSize & 0xff; out[i++] = (fileSize >> 8) & 0xff; out[i++] = (fileSize >> 16) & 0xff; out[i++] = (fileSize >> 24) & 0xff;
   out[i++] = 0; out[i++] = 0; out[i++] = 0; out[i++] = 0;
   out[i++] = BMP_HEADER_SIZE; out[i++] = 0; out[i++] = 0; out[i++] = 0;
-  out[i++] = 40; out[i++] = 0; out[i++] = 0; out[i++] = 0;
+  out[i++] = BMP_DIB_HEADER_SIZE; out[i++] = 0; out[i++] = 0; out[i++] = 0;
   out[i++] = width & 0xff; out[i++] = (width >> 8) & 0xff; out[i++] = (width >> 16) & 0xff; out[i++] = (width >> 24) & 0xff;
   out[i++] = height & 0xff; out[i++] = (height >> 8) & 0xff; out[i++] = (height >> 16) & 0xff; out[i++] = (height >> 24) & 0xff;
   out[i++] = 1; out[i++] = 0; out[i++] = 1; out[i++] = 0;
@@ -102,8 +99,8 @@ function grayToBmp(data: number[], width: number, height: number): number[] {
   out[i++] = pixelDataSize & 0xff; out[i++] = (pixelDataSize >> 8) & 0xff; out[i++] = (pixelDataSize >> 16) & 0xff; out[i++] = (pixelDataSize >> 24) & 0xff;
   out[i++] = BMP_PPM & 0xff; out[i++] = (BMP_PPM >> 8) & 0xff; out[i++] = (BMP_PPM >> 16) & 0xff; out[i++] = (BMP_PPM >> 24) & 0xff;
   out[i++] = BMP_PPM & 0xff; out[i++] = (BMP_PPM >> 8) & 0xff; out[i++] = (BMP_PPM >> 16) & 0xff; out[i++] = (BMP_PPM >> 24) & 0xff;
-  out[i++] = 2; out[i++] = 0; out[i++] = 0; out[i++] = 0;
-  out[i++] = 2; out[i++] = 0; out[i++] = 0; out[i++] = 0;
+  out[i++] = BMP_COLORS_USED; out[i++] = 0; out[i++] = 0; out[i++] = 0;
+  out[i++] = BMP_COLORS_USED; out[i++] = 0; out[i++] = 0; out[i++] = 0;
   out[i++] = 0; out[i++] = 0; out[i++] = 0; out[i++] = 0;
   out[i++] = 0xff; out[i++] = 0xff; out[i++] = 0xff; out[i++] = 0;
   for (let y = height - 1; y >= 0; y--) {

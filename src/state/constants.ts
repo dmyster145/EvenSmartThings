@@ -23,11 +23,11 @@ export const SCENE_NAME_MAX_LEN = LIST_ITEM_NAME_MAX_LEN;
 export const CONTAINER_ID_LIST = 1;
 export const CONTAINER_NAME_LIST = 'scenes-list';
 
-/** Image container: thumbs status (success/error) on the right. SDK: image width 20–200, height 20–100. */
+/** Confirmation image container (thumbs up/down/partial). SDK range: width 20-200, height 20-100. */
 export const CONTAINER_ID_CONFIRMATION = 2;
 export const CONTAINER_NAME_CONFIRMATION = 'confirmation';
 
-/** Layout: list on left, thumbs status top-right (square so icon isn’t stretched wide). */
+/** Layout: list on left, compact confirmation icon in the lower-right corner. */
 export const LIST_WIDTH = 300;
 /** Height per list item; list container height = min(DISPLAY_HEIGHT, itemCount * this) so items align to top-left. */
 export const LIST_ITEM_HEIGHT = 48;

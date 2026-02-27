@@ -9,7 +9,7 @@ export function mapEvenHubEvent(event: EvenHubEvent, state: unknown): Action | n
   if (!event) return null;
 
   try {
-    // On glasses, double-tap is delivered as sysEvent with eventType 3 (DOUBLE_CLICK_EVENT), not listEvent. G2.md: "Simulator vs real device: real hardware sends textEvent or listEvent depending on the active container" but in practice we see sysEvent(3) for double-tap.
+    // Real glasses often report double-tap via sysEvent(type 3), so map it explicitly.
     if (event.sysEvent) {
       const rawType = (event.sysEvent as { eventType?: unknown }).eventType;
       if (rawType === 3 || Number(rawType) === 3) {
@@ -30,19 +30,20 @@ export function mapEvenHubEvent(event: EvenHubEvent, state: unknown): Action | n
       if (rawDoubleClick || eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
         return { type: 'TAP', selectedIndex: index, gestureTaps: 2 };
       }
-      if (
-        eventType === OsEventTypeList.CLICK_EVENT ||
-        eventType === null ||
-        eventType === undefined
-      ) {
+      if (eventType === OsEventTypeList.CLICK_EVENT) {
         return { type: 'TAP', selectedIndex: index, gestureTaps: 1 };
       }
       if (
-        eventType !== OsEventTypeList.SCROLL_TOP_EVENT &&
-        eventType !== OsEventTypeList.SCROLL_BOTTOM_EVENT
+        eventType === OsEventTypeList.SCROLL_TOP_EVENT ||
+        eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT
       ) {
+        return null;
+      }
+      // Some bridge builds omit eventType for click; treat as click using the event's index.
+      if (eventType === null || eventType === undefined) {
         return { type: 'TAP', selectedIndex: index, gestureTaps: 1 };
       }
+      return null;
     }
     return null;
   } catch (err) {

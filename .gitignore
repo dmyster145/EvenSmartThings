@@ -13,6 +13,7 @@ venv/
 *.log
 dist/
 build/
+*.tsbuildinfo
 *.egg-info/
 
 # IDE and OS
