@@ -91,7 +91,7 @@ export async function encryptPat(plaintext: string): Promise<string> {
 
 /**
  * Decrypt a value from storage. If the value is not encrypted (no "v1." prefix), returns it as-is for backwards compatibility.
- * On decryption failure (e.g. corrupted or migrated storage), returns '' so the app shows the config form and the user can re-enter the token.
+ * On decryption failure (e.g. corrupted or migrated storage), returns '' and logs a warning so the app can try another storage source or show the config form.
  */
 export async function decryptPat(stored: string): Promise<string> {
   if (!stored) return '';
@@ -108,7 +108,8 @@ export async function decryptPat(stored: string): Promise<string> {
       ciphertext
     );
     return new TextDecoder().decode(decrypted);
-  } catch {
+  } catch (err) {
+    console.warn('[EvenSmartThings] PAT decryption failed (storage may be corrupted or crypto unavailable):', err);
     return '';
   }
 }

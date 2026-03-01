@@ -33,8 +33,9 @@ export const LIST_WIDTH = 300;
 export const LIST_ITEM_HEIGHT = 48;
 /** Height of list when only 2 items (main menu); kept for reference, = 2 * LIST_ITEM_HEIGHT. */
 export const LIST_HEIGHT_MAIN_MENU = LIST_ITEM_HEIGHT * 2;
-export const CONFIRMATION_WIDTH = 25;
-export const CONFIRMATION_HEIGHT = 25;
+/** Confirmation icon (thumbs up/down/partial) size in lower-right. SDK range: width 20-200, height 20-100. */
+export const CONFIRMATION_WIDTH = 60;
+export const CONFIRMATION_HEIGHT = 60;
 
 /** Vertical offset of the SmartThings statuses box (top of display). */
 export const STATS_TOP_OFFSET = 0;

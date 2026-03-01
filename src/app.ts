@@ -62,20 +62,45 @@ import { ImageRawDataUpdate } from '@evenrealities/even_hub_sdk';
 
 const CONFIG_PANEL_ID = 'config';
 
-/** Load PAT from bridge storage first, then localStorage as a fallback. */
-async function getStoredPat(hub: EvenHubBridge): Promise<string> {
-  const fromBridge = await hub.getLocalStorage(PAT_STORAGE_KEY);
-  if (fromBridge && fromBridge.trim()) return fromBridge;
+/** Get raw PAT string from bridge storage only. */
+async function getStoredPatFromBridge(hub: EvenHubBridge): Promise<string> {
+  const raw = await hub.getLocalStorage(PAT_STORAGE_KEY);
+  return (raw ?? '').trim();
+}
+
+/** Get raw PAT string from browser localStorage only (when available). */
+function getStoredPatFromLocalStorage(): string {
   try {
-    const fromLocal = typeof localStorage !== 'undefined' ? localStorage.getItem(PAT_STORAGE_KEY) : null;
-    return fromLocal ?? '';
+    if (typeof localStorage === 'undefined') return '';
+    const raw = localStorage.getItem(PAT_STORAGE_KEY);
+    return (raw ?? '').trim();
   } catch {
     return '';
   }
 }
 
+/**
+ * Load PAT by trying bridge first, then localStorage. If decryption fails for one source,
+ * the other is tried so a single corrupted or context-dependent failure does not force re-entry.
+ */
+async function getStoredPat(hub: EvenHubBridge): Promise<string> {
+  const fromBridge = await getStoredPatFromBridge(hub);
+  const fromLocal = getStoredPatFromLocalStorage();
+
+  const decryptedBridge = fromBridge ? await decryptPat(fromBridge) : '';
+  if (decryptedBridge.trim()) return decryptedBridge;
+
+  const decryptedLocal = fromLocal ? await decryptPat(fromLocal) : '';
+  if (decryptedLocal.trim()) return decryptedLocal;
+
+  return '';
+}
+
 async function setStoredPat(hub: EvenHubBridge, value: string): Promise<void> {
-  await hub.setLocalStorage(PAT_STORAGE_KEY, value);
+  const bridgeOk = await hub.setLocalStorage(PAT_STORAGE_KEY, value);
+  if (!bridgeOk) {
+    console.warn('[EvenSmartThings] Bridge storage write failed; token saved to localStorage only.');
+  }
   try {
     if (typeof localStorage !== 'undefined') localStorage.setItem(PAT_STORAGE_KEY, value);
   } catch {
@@ -628,10 +653,9 @@ export async function initApp(): Promise<void> {
 
   let pat: string;
   try {
-    const raw = await getStoredPat(hub);
-    pat = await decryptPat(raw);
+    pat = await getStoredPat(hub);
   } catch (err) {
-    console.warn('[EvenSmartThings] getStoredPat/decrypt error:', err);
+    console.warn('[EvenSmartThings] getStoredPat error:', err);
     showPanel(OPEN_IN_EVEN_ID);
     return;
   }
