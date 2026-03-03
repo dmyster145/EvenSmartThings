@@ -23,7 +23,7 @@ export const SCENE_NAME_MAX_LEN = LIST_ITEM_NAME_MAX_LEN;
 export const CONTAINER_ID_LIST = 1;
 export const CONTAINER_NAME_LIST = 'scenes-list';
 
-/** Confirmation image container (thumbs up/down/partial). SDK range: width 20-200, height 20-100. */
+/** Confirmation image container (checkmark/exclamation/error). SDK range: width 20-200, height 20-100. */
 export const CONTAINER_ID_CONFIRMATION = 2;
 export const CONTAINER_NAME_CONFIRMATION = 'confirmation';
 
@@ -33,7 +33,7 @@ export const LIST_WIDTH = 300;
 export const LIST_ITEM_HEIGHT = 48;
 /** Height of list when only 2 items (main menu); kept for reference, = 2 * LIST_ITEM_HEIGHT. */
 export const LIST_HEIGHT_MAIN_MENU = LIST_ITEM_HEIGHT * 2;
-/** Confirmation icon (thumbs up/down/partial) size in lower-right. SDK range: width 20-200, height 20-100. */
+/** Confirmation icon (checkmark/exclamation/error) size in lower-right. SDK range: width 20-200, height 20-100. */
 export const CONFIRMATION_WIDTH = 60;
 export const CONFIRMATION_HEIGHT = 60;
 

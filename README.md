@@ -59,7 +59,7 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 │   │   └── actions.ts  # Map Even Hub events to app tap actions
 │   ├── render/
 │   │   ├── composer.ts # G2 page layout (list + confirmation + stats containers)
-│   │   ├── icon-data.ts   # Confirmation/status images (thumbs up/down/partial) + BMP/PNG conversion
+│   │   ├── icon-data.ts   # Confirmation/status images (checkmark/exclamation/error) + BMP/PNG conversion
 │   │   └── bmp-constants.ts
 │   ├── state/          # Redux-style store, contracts, reducer, selectors, constants
 │   ├── crypto/

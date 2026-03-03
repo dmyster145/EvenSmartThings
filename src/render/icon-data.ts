@@ -1,6 +1,6 @@
 /**
  * Confirmation icon rendering for the glasses status container.
- * Loads /icons overrides when present (ThumbsUp, ThumbsDown, ThisClose),
+ * Loads /icons overrides when present (checkmark, exclamation, error),
  * then falls back to generated placeholder glyphs.
  */
 
@@ -20,17 +20,22 @@ import {
 export type ConfirmationResult = 'success' | 'partial' | 'failure';
 
 const ICON_BASE = '/icons';
-const THUMB_UP_URL = `${ICON_BASE}/ThumbsUp.png`;
-const THUMB_DOWN_URL = `${ICON_BASE}/ThumbsDown.png`;
-const THUMB_PARTIAL_URL = `${ICON_BASE}/ThisClose.png`;
+const CHECKMARK_URL = `${ICON_BASE}/checkmark.png`;
+const EXCLAMATION_URL = `${ICON_BASE}/exclamation.png`;
+const ERROR_URL = `${ICON_BASE}/error.png`;
+/**
+ * 1-bit conversion threshold.
+ * Lower than 128 so anti-aliased icon edge pixels survive BMP quantization.
+ */
+const BMP_WHITE_THRESHOLD = 32;
 
 type CachedIcon = { png: string; raw: number[] };
 
 const iconCache: {
-  thumbUp: CachedIcon | null;
-  thumbDown: CachedIcon | null;
-  thumbPartial: CachedIcon | null;
-} = { thumbUp: null, thumbDown: null, thumbPartial: null };
+  checkmark: CachedIcon | null;
+  exclamation: CachedIcon | null;
+  error: CachedIcon | null;
+} = { checkmark: null, exclamation: null, error: null };
 
 /** Load image from URL, scale to target size, return PNG base64 and raw grayscale number[]. */
 function loadPngAndRaw(
@@ -50,7 +55,24 @@ function loadPngAndRaw(
         resolve(null);
         return;
       }
-      ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+      // If source already matches target, draw 1:1 to avoid any resampling artifacts.
+      const sourceWidth = img.naturalWidth || img.width || targetWidth;
+      const sourceHeight = img.naturalHeight || img.height || targetHeight;
+      ctx.clearRect(0, 0, targetWidth, targetHeight);
+      if (sourceWidth === targetWidth && sourceHeight === targetHeight) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, 0, 0);
+      } else {
+        // Fallback for non-60x60 assets: preserve aspect ratio and avoid upscaling.
+        const scale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight, 1);
+        const drawWidth = Math.max(1, Math.round(sourceWidth * scale));
+        const drawHeight = Math.max(1, Math.round(sourceHeight * scale));
+        const offsetX = Math.floor((targetWidth - drawWidth) / 2);
+        const offsetY = Math.floor((targetHeight - drawHeight) / 2);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+      }
       const dataUrl = canvas.toDataURL('image/png');
       const png = dataUrl.includes(',') ? dataUrl.split(',')[1]! : dataUrl;
       const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
@@ -59,7 +81,11 @@ function loadPngAndRaw(
         const r = imageData.data[i]!;
         const g = imageData.data[i + 1]!;
         const b = imageData.data[i + 2]!;
-        raw.push(Math.floor(0.299 * r + 0.587 * g + 0.114 * b));
+        const alphaByte = imageData.data[i + 3] ?? 255;
+        const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+        // Favor alpha coverage so dark-colored but opaque icon pixels stay visible on 1-bit output.
+        const monochromeValue = Math.floor((alphaByte * 3 + luma) / 4);
+        raw.push(monochromeValue);
       }
       resolve({ png, raw });
     };
@@ -70,14 +96,14 @@ function loadPngAndRaw(
 
 /** Preload /icons/*.png into cache (PNG + raw for device). */
 export async function loadIconCache(): Promise<void> {
-  const [thumbUp, thumbDown, thumbPartial] = await Promise.all([
-    loadPngAndRaw(THUMB_UP_URL, CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT),
-    loadPngAndRaw(THUMB_DOWN_URL, CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT),
-    loadPngAndRaw(THUMB_PARTIAL_URL, CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT),
+  const [checkmark, exclamation, error] = await Promise.all([
+    loadPngAndRaw(CHECKMARK_URL, CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT),
+    loadPngAndRaw(EXCLAMATION_URL, CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT),
+    loadPngAndRaw(ERROR_URL, CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT),
   ]);
-  iconCache.thumbUp = thumbUp;
-  iconCache.thumbDown = thumbDown;
-  iconCache.thumbPartial = thumbPartial;
+  iconCache.checkmark = checkmark;
+  iconCache.exclamation = exclamation;
+  iconCache.error = error;
 }
 
 /** Convert grayscale (0-255) pixels to 1-bit BMP bytes for real glasses. */
@@ -110,7 +136,7 @@ function grayToBmp(data: number[], width: number, height: number): number[] {
         const x = col * 8 + (7 - bit);
         if (x < width) {
           const g = data[y * width + x] ?? 0;
-          if (g >= 128) byte |= 1 << bit;
+          if (g >= BMP_WHITE_THRESHOLD) byte |= 1 << bit;
         }
       }
       out[i++] = byte;
@@ -183,7 +209,7 @@ function buildConfirmationPlaceholder(result: ConfirmationResult): number[] {
     }
     fillRect(data, w, h, cx - pad(4), cy, pad(8), pad(14), WHITE);
   } else {
-    // partial: "this close" — two short vertical bars close together (finger & thumb)
+    // partial fallback: two short vertical bars close together
     const gap = Math.max(1, pad(4));
     fillRect(data, w, h, cx - gap - pad(3), cy - pad(10), pad(2), pad(12), WHITE);
     fillRect(data, w, h, cx + gap, cy - pad(10), pad(2), pad(12), WHITE);
@@ -194,11 +220,11 @@ function buildConfirmationPlaceholder(result: ConfirmationResult): number[] {
 function getCachedIconForResult(result: ConfirmationResult): CachedIcon | null {
   switch (result) {
     case 'success':
-      return iconCache.thumbUp;
+      return iconCache.checkmark;
     case 'failure':
-      return iconCache.thumbDown;
+      return iconCache.error;
     case 'partial':
-      return iconCache.thumbPartial;
+      return iconCache.exclamation;
   }
 }
 

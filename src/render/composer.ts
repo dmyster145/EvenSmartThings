@@ -1,5 +1,5 @@
 /**
- * Page Composer — list (left), thumbs status (right).
+ * Page Composer — list (left), confirmation status (right).
  */
 
 import {
