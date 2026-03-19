@@ -94,11 +94,8 @@ function isSmartThingsAuthError(err: unknown): boolean {
   );
 }
 
-function formatSessionExpiry(expiresAt?: string): string {
-  if (!expiresAt) return 'Connected.';
-  const parsed = new Date(expiresAt);
-  if (Number.isNaN(parsed.getTime())) return 'Connected.';
-  return `Connected. Access token expires ${parsed.toLocaleString()}.`;
+function formatSessionExpiry(_expiresAt?: string): string {
+  return 'Connected. SmartThings session is active.';
 }
 
 type AuthUI = {
