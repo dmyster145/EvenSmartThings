@@ -112,6 +112,36 @@ class FileSessionStore {
   }
 }
 
+class UnsupportedSessionStore {
+  constructor(message) {
+    this.message = message;
+  }
+
+  async createOAuthState() {
+    throw new Error(this.message);
+  }
+
+  async consumeOAuthState() {
+    throw new Error(this.message);
+  }
+
+  async createSession() {
+    throw new Error(this.message);
+  }
+
+  async getSession() {
+    return null;
+  }
+
+  async putSession() {
+    throw new Error(this.message);
+  }
+
+  async deleteSession() {
+    return;
+  }
+}
+
 class RedisSessionStore {
   constructor(config) {
     this.config = config;
@@ -209,6 +239,11 @@ class RedisSessionStore {
 export function createSessionStore(config) {
   if (config.storageDriver === 'redis') {
     return new RedisSessionStore(config);
+  }
+  if (process.env.VERCEL) {
+    return new UnsupportedSessionStore(
+      'SmartThings session storage is not configured for Vercel. Add KV_REST_API_URL and KV_REST_API_TOKEN, or UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.'
+    );
   }
   return new FileSessionStore(config);
 }
