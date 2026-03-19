@@ -94,6 +94,16 @@ class FileSessionStore {
     return store.sessions[sessionId] ?? null;
   }
 
+  async touchSession(sessionId) {
+    if (!sessionId) return null;
+    const store = await loadStore(this.filePath);
+    const session = store.sessions[sessionId];
+    if (!session) return null;
+    session.updatedAt = new Date().toISOString();
+    await saveStore(this.filePath, store);
+    return session;
+  }
+
   async putSession(session) {
     const store = await loadStore(this.filePath);
     store.sessions[session.sessionId] = {
@@ -131,6 +141,10 @@ class UnsupportedSessionStore {
   }
 
   async getSession() {
+    return null;
+  }
+
+  async touchSession() {
     return null;
   }
 
@@ -264,6 +278,13 @@ class RedisSessionStore {
     if (!sessionId) return null;
     const raw = await this.runCommand('GET', getSessionKey(this.config, sessionId));
     return parseRecord(raw);
+  }
+
+  async touchSession(sessionId) {
+    if (!sessionId) return null;
+    const session = await this.getSession(sessionId);
+    if (!session) return null;
+    return this.putSession(session);
   }
 
   async putSession(session) {

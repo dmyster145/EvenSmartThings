@@ -47,6 +47,10 @@ export function getServerConfig() {
     firstDefined(process.env.SMARTTHINGS_CONTROLS_OAUTH_STATE_TTL_SECONDS),
     60 * 10
   );
+  const rollingSessionTouchIntervalSeconds = parsePositiveInteger(
+    firstDefined(process.env.SMARTTHINGS_CONTROLS_SESSION_TOUCH_INTERVAL_SECONDS),
+    60 * 60 * 12
+  );
   const storagePrefix = firstDefined(process.env.SMARTTHINGS_CONTROLS_STORAGE_PREFIX, 'smartthings-controls')
     .replace(/:+$/, '');
 
@@ -67,6 +71,7 @@ export function getServerConfig() {
     ),
     sessionTtlSeconds,
     oauthStateTtlSeconds,
+    rollingSessionTouchIntervalSeconds,
     storageDriver: redisRestUrl && redisRestToken ? 'redis' : redisTcpUrl ? 'redis' : 'file',
     redis: {
       mode: redisRestUrl && redisRestToken ? 'rest' : redisTcpUrl ? 'tcp' : 'none',

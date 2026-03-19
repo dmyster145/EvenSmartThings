@@ -146,6 +146,7 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
   - `GET|POST /api/smartapp`
 - Local development uses the file-backed store at `server/data/sessions.json`.
 - Vercel production uses Redis storage when `KV_REST_API_URL` / `KV_REST_API_TOKEN`, `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`, or `SMARTTHINGS_DB_REDIS_URL` is set.
+- Session cookies are rolling by default: active users stay signed in, while inactive sessions expire after `SMARTTHINGS_CONTROLS_SESSION_TTL_SECONDS` (30 days by default).
 - Current status: the frontend now authenticates through the backend session and fetches SmartThings access tokens from the OAuth service, whether it is running locally or in Vercel Functions.
 
 ---

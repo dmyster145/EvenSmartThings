@@ -38,6 +38,12 @@ function getSessionCookieOptions(request) {
   };
 }
 
+function shouldTouchSession(session) {
+  const updatedAtMs = Date.parse(session?.updatedAt ?? session?.createdAt ?? '');
+  if (Number.isNaN(updatedAtMs)) return true;
+  return updatedAtMs <= Date.now() - config.rollingSessionTouchIntervalSeconds * 1000;
+}
+
 function normalizeReturnToPath(value) {
   if (typeof value !== 'string' || !value) return '/';
   if (!value.startsWith('/')) return '/';
@@ -128,9 +134,18 @@ async function getAuthenticatedSession(request) {
   const cookies = parseCookies(request);
   const sessionId = cookies[config.sessionCookieName];
   if (!sessionId) return null;
-  const session = await store.getSession(sessionId);
+  let session = await store.getSession(sessionId);
   if (!session) return null;
-  return ensureFreshSession(config, store, session);
+  session = await ensureFreshSession(config, store, session);
+  if (shouldTouchSession(session)) {
+    session = (await store.touchSession(sessionId)) ?? session;
+  }
+  return session;
+}
+
+function refreshSessionCookie(response, request, session) {
+  if (!session?.sessionId) return;
+  setSessionCookie(response, config.sessionCookieName, session.sessionId, getSessionCookieOptions(request));
 }
 
 function serverConfigurationSummary() {
@@ -175,6 +190,7 @@ export async function handleSessionRequest(request, response) {
           ...serverConfigurationSummary(),
         });
       }
+      refreshSessionCookie(response, request, session);
       return json(response, 200, {
         authenticated: true,
         ...serverConfigurationSummary(),
@@ -217,6 +233,7 @@ export async function handleAccessTokenRequest(request, response) {
         ...serverConfigurationSummary(),
       });
     }
+    refreshSessionCookie(response, request, session);
     return json(response, 200, {
       accessToken: session.accessToken,
       expiresAt: session.expiresAt,
