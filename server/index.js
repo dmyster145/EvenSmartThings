@@ -9,6 +9,7 @@ import {
   handleHealthRequest,
   handleSessionLogoutRequest,
   handleSessionRequest,
+  handleSmartAppWebhookRequest,
 } from './route-handlers.js';
 
 const config = getServerConfig();
@@ -20,6 +21,7 @@ const routeHandlers = new Map([
   ['/api/smartthings/access-token', handleAccessTokenRequest],
   ['/api/auth/smartthings/start', handleAuthStartRequest],
   ['/api/auth/smartthings/callback', handleAuthCallbackRequest],
+  ['/api/smartapp', handleSmartAppWebhookRequest],
 ]);
 
 const server = createServer(async (request, response) => {

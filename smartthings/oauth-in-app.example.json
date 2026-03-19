@@ -1,0 +1,27 @@
+{
+  "displayName": "SmartThings Controls",
+  "description": "SmartThings Controls for Even Realities G2 glasses",
+  "appName": "smartthingscontrols-replace-with-unique-suffix",
+  "appType": "API_ONLY",
+  "classifications": [
+    "CONNECTED_SERVICE"
+  ],
+  "singleInstance": true,
+  "apiOnly": {
+    "targetUrl": "https://even-smart-things.vercel.app/api/smartapp"
+  },
+  "principalType": "LOCATION",
+  "oauth": {
+    "clientName": "SmartThings Controls",
+    "scope": [
+      "r:devices:*",
+      "x:devices:*",
+      "r:locations:*",
+      "r:scenes:*",
+      "x:scenes:*"
+    ],
+    "redirectUris": [
+      "https://even-smart-things.vercel.app/api/auth/smartthings/callback"
+    ]
+  }
+}

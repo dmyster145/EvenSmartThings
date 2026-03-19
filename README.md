@@ -135,6 +135,7 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 - Start the backend with `npm run dev:server`.
 - Start the frontend with `npm run dev`.
 - In SmartThings, register the redirect URI shown in `SMARTTHINGS_REDIRECT_URI`. In local development that can be `http://<your-ip>:5173/api/auth/smartthings/callback` because Vite now proxies `/api` to the backend service.
+- If you create the SmartThings OAuth-In app through the CLI, use `https://<your-domain>/api/smartapp` as the SmartApp `targetUrl` and `https://<your-domain>/api/auth/smartthings/callback` as the OAuth redirect URI.
 - The scaffold exposes:
   - `GET /api/health`
   - `GET /api/session`
@@ -142,6 +143,7 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
   - `GET /api/auth/smartthings/start`
   - `GET /api/auth/smartthings/callback`
   - `GET /api/smartthings/access-token`
+  - `GET|POST /api/smartapp`
 - Local development uses the file-backed store at `server/data/sessions.json`.
 - Vercel production uses Redis REST storage when `KV_REST_API_URL` / `KV_REST_API_TOKEN` or `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are set.
 - Current status: the frontend now authenticates through the backend session and fetches SmartThings access tokens from the OAuth service, whether it is running locally or in Vercel Functions.
@@ -200,6 +202,8 @@ Notes:
 - The Vercel deployment does not use `server/data/sessions.json`; that file only exists for local development.
 - The OAuth `return_to` parameter is restricted to same-origin paths, so callback redirects stay inside the app.
 - Cookies are marked `Secure` automatically when the request arrives over HTTPS.
+- The SmartThings CLI should point its SmartApp webhook target to `https://<your-domain>/api/smartapp`, not the site root.
+- A JSON template for `smartthings apps:create -i` is available at [smartthings/oauth-in-app.example.json](/Users/dustinharmon/development/Even_SmartThings/smartthings/oauth-in-app.example.json).
 
 ---
 

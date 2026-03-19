@@ -4,6 +4,7 @@ import {
   json,
   methodNotAllowed,
   parseCookies,
+  readJsonBody,
   redirect,
   setSessionCookie,
 } from './http-utils.js';
@@ -42,6 +43,76 @@ function normalizeReturnToPath(value) {
   if (!value.startsWith('/')) return '/';
   if (value.startsWith('//')) return '/';
   return value;
+}
+
+function getSmartAppTargetUrl(request) {
+  const url = new URL(request.url ?? '/', getRequestOrigin(request));
+  return `${getRequestOrigin(request)}${url.pathname}`;
+}
+
+function getSmartAppInitializeResponse() {
+  return {
+    configurationData: {
+      initialize: {
+        name: 'SmartThings Controls',
+        description: 'SmartThings Controls for Even Realities G2 glasses',
+        id: 'smartthings-controls',
+        permissions: [],
+        firstPageId: 'main',
+      },
+    },
+  };
+}
+
+function getSmartAppPageResponse(pageId) {
+  return {
+    configurationData: {
+      page: {
+        pageId: pageId || 'main',
+        name: 'SmartThings Controls',
+        nextPageId: null,
+        previousPageId: null,
+        complete: true,
+        sections: [
+          {
+            name: 'Authorization',
+            settings: [
+              {
+                id: 'smartthings-controls-info',
+                name: 'Finish setup in Even App',
+                description: 'Tap Done to continue',
+                type: 'PARAGRAPH',
+                defaultValue: 'Use the Even App to connect SmartThings and finish authorization.',
+              },
+            ],
+          },
+        ],
+      },
+    },
+  };
+}
+
+async function acknowledgeSmartAppConfirmation(body) {
+  const confirmationUrl = body?.confirmationData?.confirmationUrl;
+  if (typeof confirmationUrl !== 'string' || !confirmationUrl) return;
+
+  try {
+    const response = await fetch(confirmationUrl, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+    if (!response.ok) {
+      console.warn(
+        '[smartthings-controls-server] SmartApp confirmation GET failed:',
+        response.status,
+        response.statusText
+      );
+    }
+  } catch (err) {
+    console.warn('[smartthings-controls-server] SmartApp confirmation GET failed:', err);
+  }
 }
 
 function sessionSummary(session) {
@@ -202,6 +273,62 @@ export async function handleAuthCallbackRequest(request, response) {
     const session = await store.createSession(tokenSet);
     setSessionCookie(response, config.sessionCookieName, session.sessionId, getSessionCookieOptions(request));
     return redirect(response, normalizeReturnToPath(oauthState.returnTo));
+  } catch (err) {
+    return sendServerError(response, err);
+  }
+}
+
+export async function handleSmartAppWebhookRequest(request, response) {
+  try {
+    if (request.method === 'GET') {
+      return json(response, 200, {
+        ok: true,
+        targetUrl: getSmartAppTargetUrl(request),
+        message: 'SmartThings SmartApp webhook endpoint',
+      });
+    }
+
+    if (request.method !== 'POST') return methodNotAllowed(response, ['GET', 'POST']);
+
+    const body = await readJsonBody(request);
+    const lifecycle = typeof body.lifecycle === 'string' ? body.lifecycle : '';
+    const targetUrl = getSmartAppTargetUrl(request);
+
+    console.log('[smartthings-controls-server] SmartApp lifecycle:', lifecycle, JSON.stringify(body));
+
+    switch (lifecycle) {
+      case 'CONFIRMATION':
+        await acknowledgeSmartAppConfirmation(body);
+        return json(response, 200, { targetUrl });
+      case 'PING':
+        return json(response, 200, {
+          pingData: {
+            challenge: body?.pingData?.challenge ?? '',
+          },
+        });
+      case 'CONFIGURATION': {
+        const phase = body?.configurationData?.phase;
+        if (phase === 'INITIALIZE') {
+          return json(response, 200, getSmartAppInitializeResponse());
+        }
+        if (phase === 'PAGE') {
+          return json(response, 200, getSmartAppPageResponse(body?.configurationData?.pageId));
+        }
+        return json(response, 200, { configurationData: {} });
+      }
+      case 'INSTALL':
+        return json(response, 200, { installData: {} });
+      case 'UPDATE':
+        return json(response, 200, { updateData: {} });
+      case 'EVENT':
+        return json(response, 200, { eventData: {} });
+      case 'OAUTH_CALLBACK':
+        return json(response, 200, { oAuthCallbackData: {} });
+      case 'UNINSTALL':
+        return json(response, 200, { uninstallData: {} });
+      default:
+        return json(response, 200, { status: 'ignored', lifecycle });
+    }
   } catch (err) {
     return sendServerError(response, err);
   }
