@@ -1,5 +1,5 @@
 /**
- * Even SmartThings — Application entry point.
+ * SmartThings Controls — Application entry point.
  *
  * Flow: Bridge init → backend session lookup → SmartThings access token →
  * SmartThings client → fetch scenes → setup G2 list → rebuild list with scene names →
@@ -700,7 +700,7 @@ export async function initApp(): Promise<void> {
   try {
     await hub.init();
   } catch (err) {
-    console.warn('[EvenSmartThings] Init error:', err);
+    console.warn('[SmartThingsControls] Init error:', err);
     showPanel(OPEN_IN_EVEN_ID);
     return;
   }
@@ -715,7 +715,7 @@ export async function initApp(): Promise<void> {
   try {
     initialSessionStatus = await getSessionStatus();
   } catch (err) {
-    console.warn('[EvenSmartThings] getSessionStatus error:', err);
+    console.warn('[SmartThingsControls] getSessionStatus error:', err);
     authUI.showConnectPanel(AUTH_SERVICE_UNAVAILABLE_MESSAGE, false);
     return;
   }
@@ -1685,5 +1685,5 @@ export async function initApp(): Promise<void> {
     }
   });
 
-  console.log('[EvenSmartThings] Initialized.');
+  console.log('[SmartThingsControls] Initialized.');
 }

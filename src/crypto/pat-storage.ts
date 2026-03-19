@@ -6,20 +6,22 @@
 
 const ALGORITHM = 'AES-GCM';
 const KEY_ALGORITHM = 'PBKDF2';
-const SALT = new TextEncoder().encode('even-smartthings-pat-salt-v1');
+const SALT = new TextEncoder().encode('smartthings-controls-pat-salt-v1');
+const LEGACY_SALT = new TextEncoder().encode(atob('ZXZlbi1zbWFydHRoaW5ncy1wYXQtc2FsdC12MQ=='));
 const ITERATIONS = 100_000;
 const IV_LENGTH = 12;
 const TAG_LENGTH = 128;
 const PREFIX = 'v1.';
 
 /** App-level secret used only to derive the encryption key (obfuscation at rest). */
-const KEY_PASSPHRASE = 'even-smartthings-pat-encryption-v1';
+const KEY_PASSPHRASE = 'smartthings-controls-pat-encryption-v1';
+const LEGACY_KEY_PASSPHRASE = atob('ZXZlbi1zbWFydHRoaW5ncy1wYXQtZW5jcnlwdGlvbi12MQ==');
 
-async function getKey(): Promise<CryptoKey> {
+async function getKey(passphrase: string, salt: BufferSource): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
-    enc.encode(KEY_PASSPHRASE),
+    enc.encode(passphrase),
     'PBKDF2',
     false,
     ['deriveBits', 'deriveKey']
@@ -27,7 +29,7 @@ async function getKey(): Promise<CryptoKey> {
   return await crypto.subtle.deriveKey(
     {
       name: KEY_ALGORITHM,
-      salt: SALT,
+      salt,
       iterations: ITERATIONS,
       hash: 'SHA-256',
     },
@@ -75,7 +77,7 @@ export async function encryptPatOrPlaintext(plaintext: string): Promise<string> 
  */
 export async function encryptPat(plaintext: string): Promise<string> {
   if (!plaintext) return '';
-  const key = await getKey();
+  const key = await getKey(KEY_PASSPHRASE, SALT);
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
   const encoded = new TextEncoder().encode(plaintext);
   const ciphertext = await crypto.subtle.encrypt(
@@ -101,15 +103,27 @@ export async function decryptPat(stored: string): Promise<string> {
     if (combined.length < IV_LENGTH) return '';
     const iv = Uint8Array.from(combined.subarray(0, IV_LENGTH));
     const ciphertext = Uint8Array.from(combined.subarray(IV_LENGTH));
-    const key = await getKey();
-    const decrypted = await crypto.subtle.decrypt(
-      { name: ALGORITHM, iv, tagLength: TAG_LENGTH },
-      key,
-      ciphertext
-    );
-    return new TextDecoder().decode(decrypted);
+    const keyCandidates: Array<{ passphrase: string; salt: BufferSource }> = [
+      { passphrase: KEY_PASSPHRASE, salt: SALT },
+      // Keep legacy decryption support for values encrypted before app rename.
+      { passphrase: LEGACY_KEY_PASSPHRASE, salt: LEGACY_SALT },
+    ];
+    for (const candidate of keyCandidates) {
+      try {
+        const key = await getKey(candidate.passphrase, candidate.salt);
+        const decrypted = await crypto.subtle.decrypt(
+          { name: ALGORITHM, iv, tagLength: TAG_LENGTH },
+          key,
+          ciphertext
+        );
+        return new TextDecoder().decode(decrypted);
+      } catch {
+        // Try next key candidate.
+      }
+    }
+    return '';
   } catch (err) {
-    console.warn('[EvenSmartThings] PAT decryption failed (storage may be corrupted or crypto unavailable):', err);
+    console.warn('[SmartThingsControls] PAT decryption failed (storage may be corrupted or crypto unavailable):', err);
     return '';
   }
 }

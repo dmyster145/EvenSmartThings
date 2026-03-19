@@ -31,7 +31,7 @@ const server = createServer(async (request, response) => {
     }
     return handler(request, response);
   } catch (err) {
-    console.error('[even-smartthings-server] request failed:', err);
+    console.error('[smartthings-controls-server] request failed:', err);
     return json(response, 500, {
       error: err instanceof Error ? err.message : 'Unknown server error',
     });
@@ -39,5 +39,5 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(config.port, config.host, () => {
-  console.log(`[even-smartthings-server] listening on ${config.host}:${config.port}`);
+  console.log(`[smartthings-controls-server] listening on ${config.host}:${config.port}`);
 });

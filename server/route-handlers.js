@@ -73,7 +73,7 @@ function serverConfigurationSummary() {
 }
 
 function sendServerError(response, err) {
-  console.error('[even-smartthings-server] request failed:', err);
+  console.error('[smartthings-controls-server] request failed:', err);
   return json(response, 500, {
     error: err instanceof Error ? err.message : 'Unknown server error',
   });

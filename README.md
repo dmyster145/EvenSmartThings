@@ -1,4 +1,4 @@
-# Even SmartThings
+# SmartThings Controls
 
 **Control SmartThings from your Even Realities G2 glasses.** Browse scenes, rooms, and devices in a list, then tap to run or control. Configure your SmartThings connection, list order, favorites, custom names, and stats visibility in the Even App config panel.
 
@@ -87,8 +87,8 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 1. **Clone and install**
 
    ```bash
-   git clone https://github.com/dmyster145/EvenSmartThings.git
-   cd EvenSmartThings
+   git clone https://github.com/dmyster145/SmartThingsControls.git
+   cd SmartThingsControls
    npm install
    ```
 
@@ -186,7 +186,7 @@ Frontend output is in `dist/`. On Vercel, the static frontend is served from `di
 1. Import the repository into Vercel.
 2. Set the build command to `npm run build` if Vercel does not detect it automatically.
 3. Set these environment variables in Vercel:
-   - `EVEN_SMARTTHINGS_PUBLIC_APP_URL=https://<your-vercel-domain>`
+   - `SMARTTHINGS_CONTROLS_PUBLIC_APP_URL=https://<your-vercel-domain>`
    - `SMARTTHINGS_CLIENT_ID`
    - `SMARTTHINGS_CLIENT_SECRET`
    - `SMARTTHINGS_SCOPES`

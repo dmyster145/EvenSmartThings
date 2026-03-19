@@ -1,5 +1,5 @@
 /**
- * Core type definitions for the Even SmartThings app.
+ * Core type definitions for the SmartThings Controls app.
  */
 
 export interface SceneEntry {
