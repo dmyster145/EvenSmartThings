@@ -32,6 +32,13 @@ export function getServerConfig() {
     firstDefined(process.env.KV_REST_API_URL, process.env.UPSTASH_REDIS_REST_URL)
   );
   const redisRestToken = firstDefined(process.env.KV_REST_API_TOKEN, process.env.UPSTASH_REDIS_REST_TOKEN);
+  const redisTcpUrl = firstDefined(
+    process.env.SMARTTHINGS_DB_REDIS_URL,
+    process.env.SmartThings_DB_REDIS_URL,
+    process.env.SmartThings_DB_Redis_URL,
+    process.env.REDIS_URL,
+    process.env.REDIS_TLS_URL
+  );
   const sessionTtlSeconds = parsePositiveInteger(
     firstDefined(process.env.SMARTTHINGS_CONTROLS_SESSION_TTL_SECONDS),
     60 * 60 * 24 * 30
@@ -60,10 +67,12 @@ export function getServerConfig() {
     ),
     sessionTtlSeconds,
     oauthStateTtlSeconds,
-    storageDriver: redisRestUrl && redisRestToken ? 'redis' : 'file',
+    storageDriver: redisRestUrl && redisRestToken ? 'redis' : redisTcpUrl ? 'redis' : 'file',
     redis: {
+      mode: redisRestUrl && redisRestToken ? 'rest' : redisTcpUrl ? 'tcp' : 'none',
       restUrl: redisRestUrl,
       restToken: redisRestToken,
+      tcpUrl: redisTcpUrl,
       keyPrefix: storagePrefix,
     },
     smartThings: {

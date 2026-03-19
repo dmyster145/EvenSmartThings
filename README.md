@@ -145,7 +145,7 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
   - `GET /api/smartthings/access-token`
   - `GET|POST /api/smartapp`
 - Local development uses the file-backed store at `server/data/sessions.json`.
-- Vercel production uses Redis REST storage when `KV_REST_API_URL` / `KV_REST_API_TOKEN` or `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are set.
+- Vercel production uses Redis storage when `KV_REST_API_URL` / `KV_REST_API_TOKEN`, `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`, or `SMARTTHINGS_DB_REDIS_URL` is set.
 - Current status: the frontend now authenticates through the backend session and fetches SmartThings access tokens from the OAuth service, whether it is running locally or in Vercel Functions.
 
 ---
@@ -196,12 +196,14 @@ Frontend output is in `dist/`. On Vercel, the static frontend is served from `di
 4. Attach a Redis store and expose either:
    - `KV_REST_API_URL` and `KV_REST_API_TOKEN`, or
    - `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
+   - `SMARTTHINGS_DB_REDIS_URL`
 5. Register the exact HTTPS callback URL in SmartThings.
 
 Notes:
 - The Vercel deployment does not use `server/data/sessions.json`; that file only exists for local development.
 - The OAuth `return_to` parameter is restricted to same-origin paths, so callback redirects stay inside the app.
 - Cookies are marked `Secure` automatically when the request arrives over HTTPS.
+- A standard `redis://...` connection string also works through `SMARTTHINGS_DB_REDIS_URL` if your Vercel integration provides that instead of REST-style Upstash variables.
 - The SmartThings CLI should point its SmartApp webhook target to `https://<your-domain>/api/smartapp`, not the site root.
 - A JSON template for `smartthings apps:create -i` is available at [smartthings/oauth-in-app.example.json](/Users/dustinharmon/development/Even_SmartThings/smartthings/oauth-in-app.example.json).
 

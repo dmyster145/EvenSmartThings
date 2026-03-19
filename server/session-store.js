@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { createClient } from 'redis';
 import { makeOpaqueId } from './http-utils.js';
 
 const EMPTY_STORE = {
@@ -142,12 +143,62 @@ class UnsupportedSessionStore {
   }
 }
 
+let sharedTcpRedisClientPromise = null;
+
+async function getTcpRedisClient(config) {
+  if (!sharedTcpRedisClientPromise) {
+    const client = createClient({
+      url: config.redis.tcpUrl,
+    });
+    client.on('error', (err) => {
+      console.error('[smartthings-controls-server] Redis client error:', err);
+    });
+    sharedTcpRedisClientPromise = client.connect().then(() => client).catch((err) => {
+      sharedTcpRedisClientPromise = null;
+      throw err;
+    });
+  }
+  return sharedTcpRedisClientPromise;
+}
+
+async function consumeRedisKeyAtomically(client, key) {
+  const result = await client.eval(
+    "local value = redis.call('GET', KEYS[1]); if value then redis.call('DEL', KEYS[1]); end; return value",
+    {
+      keys: [key],
+    }
+  );
+  return typeof result === 'string' ? result : null;
+}
+
 class RedisSessionStore {
   constructor(config) {
     this.config = config;
   }
 
   async runCommand(...command) {
+    if (this.config.redis.mode === 'tcp') {
+      const client = await getTcpRedisClient(this.config);
+      const [action, ...rest] = command;
+      switch (action) {
+        case 'SET': {
+          const [key, value, exKeyword, exValue] = rest;
+          if (exKeyword === 'EX' && exValue !== undefined) {
+            return client.set(String(key), String(value), { EX: Number(exValue) });
+          }
+          return client.set(String(key), String(value));
+        }
+        case 'GET':
+          return client.get(String(rest[0]));
+        case 'GETDEL':
+          return consumeRedisKeyAtomically(client, String(rest[0]));
+        case 'DEL':
+          return client.del(String(rest[0]));
+        default:
+          throw new Error(`Unsupported Redis command: ${action}`);
+      }
+    }
+
     const response = await fetch(this.config.redis.restUrl, {
       method: 'POST',
       headers: {
@@ -242,7 +293,7 @@ export function createSessionStore(config) {
   }
   if (process.env.VERCEL) {
     return new UnsupportedSessionStore(
-      'SmartThings session storage is not configured for Vercel. Add KV_REST_API_URL and KV_REST_API_TOKEN, or UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.'
+      'SmartThings session storage is not configured for Vercel. Add KV_REST_API_URL and KV_REST_API_TOKEN, UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN, or SMARTTHINGS_DB_REDIS_URL.'
     );
   }
   return new FileSessionStore(config);
