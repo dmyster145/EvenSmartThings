@@ -1,7 +1,7 @@
 {
   "displayName": "SmartThings Controls",
   "description": "SmartThings Controls for Even Realities G2 glasses",
-  "appName": "smartthingscontrols-replace-with-unique-suffix",
+  "appName": "smartthingscontrols-OAuth-Enabled",
   "appType": "API_ONLY",
   "classifications": [
     "CONNECTED_SERVICE"
