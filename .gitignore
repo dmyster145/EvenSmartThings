@@ -10,6 +10,8 @@ __pycache__/
 venv/
 .env
 .env.local
+.vercel/
+server/data/
 *.log
 dist/
 build/

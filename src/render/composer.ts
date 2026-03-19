@@ -60,6 +60,9 @@ const MAX_STAT_LINES = 10;
 const STATS_LEFT_GAP = 4;
 const STATS_RIGHT_MARGIN = 4;
 const STATS_BOX_WIDTH = DISPLAY_WIDTH - LIST_WIDTH - STATS_LEFT_GAP - STATS_RIGHT_MARGIN;
+const AUTH_EXPIRED_LIST_LABEL = 'Reconnect in app';
+const AUTH_EXPIRED_STATS_TITLE = 'SmartThings Auth';
+const AUTH_EXPIRED_STATS_DETAIL = 'Reconnect in app';
 
 function truncateName(name: string, fallback = 'Scene'): string {
   const n = name || fallback;
@@ -103,6 +106,9 @@ function pushStatLine(
 
 function buildStatsContent(state: AppState): string {
   if (!vis(state).enabled) return '';
+  if (state.authStatus === 'expired') {
+    return [AUTH_EXPIRED_STATS_TITLE, AUTH_EXPIRED_STATS_DETAIL].join('\n');
+  }
   const lines: string[] = [];
   const showGlobalStats = !isRoomContext(state) && !isDimMenu(state);
   if (showGlobalStats) {
@@ -207,6 +213,7 @@ function sceneNamesForListView(state: AppState): string[] {
   const { listPageIndex = 0, status } = state;
   if (scenes.length === 0) {
     if (status === 'loading') return [];
+    if (state.authStatus === 'expired') return [AUTH_EXPIRED_LIST_LABEL];
     return ['No scenes'];
   }
 
@@ -241,6 +248,7 @@ function roomNamesForListView(state: AppState): string[] {
   const { listPageIndex = 0, roomsStatus } = state;
   if (rooms.length === 0) {
     if (roomsStatus === 'loading') return ['Loading…'];
+    if (state.authStatus === 'expired') return [AUTH_EXPIRED_LIST_LABEL];
     if (roomsStatus === 'error') return ['Failed to load rooms'];
     return ['No rooms'];
   }
@@ -279,6 +287,7 @@ function deviceNamesForListView(state: AppState): string[] {
   const { listPageIndex = 0, devicesStatus } = state;
   if (devices.length === 0) {
     if (devicesStatus === 'loading') return [LABEL_BACK, 'Loading…'];
+    if (state.authStatus === 'expired') return [LABEL_BACK, AUTH_EXPIRED_LIST_LABEL];
     if (devicesStatus === 'error') return [LABEL_BACK, 'Failed to load devices'];
     return [LABEL_BACK, 'No devices'];
   }
@@ -367,6 +376,7 @@ function dimLevelItemNames(state: AppState): string[] {
 function favoriteNamesForListView(state: AppState): string[] {
   const favorites = getOrderedFavorites(state);
   const { listPageIndex = 0 } = state;
+  if (state.authStatus === 'expired') return [LABEL_BACK, AUTH_EXPIRED_LIST_LABEL];
   if (favorites.length === 0) return [LABEL_BACK, 'No favorites'];
   const firstPageSlots =
     favorites.length <= SCENES_PER_PAGE ? SCENES_PER_PAGE : SCENES_PER_PAGE - 1;
@@ -400,6 +410,14 @@ const MAIN_MENU_LABELS: Record<'scenes' | 'devices' | 'favorites', string> = {
 function listItemNamesForState(state: AppState): string[] {
   if (state.listView === 'main') {
     return getMainMenuOrderedItems(state).map((item) => MAIN_MENU_LABELS[item]);
+  }
+  if (state.authStatus === 'expired') {
+    if (state.listView === 'device-detail' || state.listView === 'device-dim') {
+      return [LABEL_BACK, AUTH_EXPIRED_LIST_LABEL];
+    }
+    if (state.listView === 'room-all-detail' || state.listView === 'room-all-dim') {
+      return [LABEL_BACK, AUTH_EXPIRED_LIST_LABEL];
+    }
   }
   if (state.listView === 'scenes') return sceneNamesForListView(state);
   if (state.listView === 'rooms') return roomNamesForListView(state);

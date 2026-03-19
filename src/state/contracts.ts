@@ -146,6 +146,8 @@ export interface AppState {
   listPageIndex: number;
   status: AppStatus;
   errorMessage?: string;
+  authStatus: 'unknown' | 'connected' | 'expired';
+  authMessage?: string;
   rooms: RoomEntry[];
   roomsStatus: 'idle' | 'loading' | 'ready' | 'error';
   /** When listView is 'devices', the room whose devices we're showing. */
@@ -178,6 +180,7 @@ export type Action =
   | { type: 'NAV_ROOM_ALL' }
   | { type: 'SCENES_LOADED'; scenes: SceneEntry[] }
   | { type: 'SCENES_ERROR'; message: string }
+  | { type: 'AUTH_EXPIRED'; message: string }
   | { type: 'ROOMS_LOADING' }
   | { type: 'ROOMS_LOADED'; rooms: RoomEntry[] }
   | { type: 'ROOMS_ERROR'; message: string }

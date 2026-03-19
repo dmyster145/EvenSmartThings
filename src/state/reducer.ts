@@ -79,6 +79,8 @@ export function reduce(state: AppState, action: Action): AppState {
         listPageIndex: 0,
         status: 'ready',
         errorMessage: undefined,
+        authStatus: 'connected',
+        authMessage: undefined,
       };
     }
 
@@ -87,6 +89,15 @@ export function reduce(state: AppState, action: Action): AppState {
         ...state,
         status: 'error',
         errorMessage: action.message,
+      };
+
+    case 'AUTH_EXPIRED':
+      return {
+        ...state,
+        status: 'error',
+        errorMessage: action.message,
+        authStatus: 'expired',
+        authMessage: action.message,
       };
 
     case 'ROOMS_LOADING':
@@ -195,6 +206,7 @@ export function buildInitialState(): AppState {
     scenes: [],
     listPageIndex: 0,
     status: 'loading',
+    authStatus: 'unknown',
     rooms: [],
     roomsStatus: 'idle',
     selectedRoomId: null,

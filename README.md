@@ -1,6 +1,6 @@
 # Even SmartThings
 
-**Control SmartThings from your Even Realities G2 glasses.** Browse scenes, rooms, and devices in a list, then tap to run or control. Configure your token, list order, favorites, custom names, and stats visibility in the Even App config panel.
+**Control SmartThings from your Even Realities G2 glasses.** Browse scenes, rooms, and devices in a list, then tap to run or control. Configure your SmartThings connection, list order, favorites, custom names, and stats visibility in the Even App config panel.
 
 This project is licensed under the MIT License — see [LICENSE](LICENSE).
 
@@ -18,7 +18,7 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 |------------------------|------------------|
 | [![Motion sensor](screenshots/devices-motion-sensor.png)](screenshots/devices-motion-sensor.png) | [![Dimming](screenshots/devices-dimming.png)](screenshots/devices-dimming.png) |
 
-*Config panel:* list order, stats visibility (including **All** toggle), favorites, custom names, token, and documentation. *On the glasses:* main menu (Scenes, Devices, and Favorites when favorites exist), scene list with SmartThings statuses, favorites list, rooms, device lists, device detail (e.g. motion sensor with battery/temperature), and dimming control.
+*Config panel:* SmartThings connection, list order, stats visibility (including **All** toggle), favorites, custom names, and documentation. *On the glasses:* main menu (Scenes, Devices, and Favorites when favorites exist), scene list with SmartThings statuses, favorites list, rooms, device lists, device detail (e.g. motion sensor with battery/temperature), and dimming control.
 
 ---
 
@@ -28,7 +28,7 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 - **Devices** — Browse by room; tap to turn on/off or adjust dim level.
 - **Favorites** — One list mixing scenes and devices; you choose what’s in it and the order.
 - **Rooms** — Navigate by room, then control devices or run room actions.
-- **Config panel** — Set your token, list order (alphabetical, reverse, or custom), which stats show on the glasses, favorites, and custom display names in the Even App.
+- **Config panel** — Connect SmartThings, set list order (alphabetical, reverse, or custom), choose which stats show on the glasses, manage favorites, and set custom display names in the Even App.
 - **Gesture navigation** — Single tap to select, double tap to go back, triple tap to jump to the last page.
 - **G2-native UI** — List on the left, confirmation and stats on the right; scroll and tap drive everything.
 
@@ -48,11 +48,13 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 ## Project structure
 
 ```
-├── index.html          # Even App config UI (PAT form, list order, stats, favorites, renames) + “Open in Even App” fallback
+├── index.html          # Even App config UI (OAuth connect, list order, stats, favorites, renames) + “Open in Even App” fallback
 ├── src/
 │   ├── bootstrap.ts    # Polyfills (Buffer, util) then main
 │   ├── main.ts         # App bootstrap
-│   ├── app.ts          # PAT storage, SmartThings client, G2 setup, events, display updates
+│   ├── app.ts          # Backend session auth, SmartThings client bootstrap, G2 setup, events, display updates
+│   ├── auth/
+│   │   └── api.ts      # Frontend calls to the local OAuth backend
 │   ├── evenhub/
 │   │   └── bridge.ts   # Even Hub SDK bridge (init, setupPage, updateText, updateBoardImage, storage)
 │   ├── input/
@@ -62,10 +64,11 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 │   │   ├── icon-data.ts   # Confirmation/status images (checkmark/exclamation/error) + BMP/PNG conversion
 │   │   └── bmp-constants.ts
 │   ├── state/          # Redux-style store, contracts, reducer, selectors, constants
-│   ├── crypto/
-│   │   └── pat-storage.ts  # Encrypted PAT persistence
 │   └── debug-log.ts
+├── api/                # Vercel Function entrypoints for OAuth/session/token routes
+├── server/             # Shared OAuth/session handlers + local dev server + storage adapters
 ├── public/             # Static assets and doc.html
+├── vercel.json         # Vercel build configuration
 └── package.json
 ```
 
@@ -73,10 +76,7 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 
 ## Prerequisites
 
-- **SmartThings** — An account and a [Personal Access Token (PAT)](https://account.smartthings.com/tokens) with:
-  - **Scenes:** Read all scenes, Execute all scenes  
-  - **Devices:** Read all devices, Execute all device commands  
-  - **Locations:** Read all locations (for rooms)
+- **SmartThings** — An account plus a SmartThings OAuth client configured for this app’s redirect URI and scopes.
 - **Even Realities** — G2 glasses and the Even App (to open the widget so it appears on your glasses).
 - **Node.js** — v20.19+ (LTS) or v22.12+.
 
@@ -102,20 +102,49 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 
 3. **Run locally**
 
+   Start the backend first:
+
+   ```bash
+   npm run dev:server
+   ```
+
+   Then start Vite:
+
    ```bash
    npm run dev
    ```
+
+   Port `5173` must be available. The local OAuth redirect URI is tied to that port by default, so if Vite tries to move to another port, stop it and free `5173` instead of using the alternate port.
 
 4. **Open in the Even App**
 
    - Use [EvenHub CLI](https://www.npmjs.com/package/@evenrealities/evenhub-cli): run `npx @evenrealities/evenhub-cli qr` and scan with the Even App, or  
    - Open the dev URL (e.g. `http://<your-ip>:5173`) in the Even App’s in-app browser.
 
-5. **Configure your token**
+5. **Connect SmartThings**
 
-   - On first load, the config panel asks for your SmartThings **Personal Access Token**.
-   - Paste your PAT and tap **Save**; the app reloads and loads your scenes, devices, and rooms.
-   - The token is stored on this device only (encryption optional).
+   - On first load, the config panel shows **Connect SmartThings**.
+   - Tap it to start the SmartThings OAuth flow.
+   - After authorization, the backend stores the SmartThings refresh token and supplies fresh access tokens to the frontend when needed.
+
+---
+
+## OAuth Backend Scaffold
+
+- Copy `.env.example` to `.env.local` and set your SmartThings OAuth client ID, client secret, and redirect URI.
+- Start the backend with `npm run dev:server`.
+- Start the frontend with `npm run dev`.
+- In SmartThings, register the redirect URI shown in `SMARTTHINGS_REDIRECT_URI`. In local development that can be `http://<your-ip>:5173/api/auth/smartthings/callback` because Vite now proxies `/api` to the backend service.
+- The scaffold exposes:
+  - `GET /api/health`
+  - `GET /api/session`
+  - `POST /api/session/logout`
+  - `GET /api/auth/smartthings/start`
+  - `GET /api/auth/smartthings/callback`
+  - `GET /api/smartthings/access-token`
+- Local development uses the file-backed store at `server/data/sessions.json`.
+- Vercel production uses Redis REST storage when `KV_REST_API_URL` / `KV_REST_API_TOKEN` or `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are set.
+- Current status: the frontend now authenticates through the backend session and fetches SmartThings access tokens from the OAuth service, whether it is running locally or in Vercel Functions.
 
 ---
 
@@ -137,7 +166,7 @@ Open the app in the Even App to configure:
 - **Stats visibility** — Choose which stats show on the glasses (e.g. total devices, online/offline, type, on/off, brightness).
 - **Favorites** — Add scenes and devices to one “Favorites” list on the glasses.
 - **Custom names** — Override display names for scenes, rooms, or devices (this app only).
-- **SmartThings token** — Set or delete your PAT (section is above Documentation).
+- **SmartThings connection** — Connect, reconnect, or disconnect SmartThings (section is above Documentation).
 - **Documentation** — Link to in-app docs (`doc.html`).
 
 If you open the URL in a regular browser, you will see the **Open in Even App** panel.
@@ -150,7 +179,27 @@ If you open the URL in a regular browser, you will see the **Open in Even App** 
 npm run build
 ```
 
-Output is in `dist/`. Deploy that folder to any static host, then open the deployed URL in the Even App to use the widget in production.
+Frontend output is in `dist/`. On Vercel, the static frontend is served from `dist/` and the OAuth/token broker runs from the `api/` directory as Vercel Functions.
+
+### Vercel deployment
+
+1. Import the repository into Vercel.
+2. Set the build command to `npm run build` if Vercel does not detect it automatically.
+3. Set these environment variables in Vercel:
+   - `EVEN_SMARTTHINGS_PUBLIC_APP_URL=https://<your-vercel-domain>`
+   - `SMARTTHINGS_CLIENT_ID`
+   - `SMARTTHINGS_CLIENT_SECRET`
+   - `SMARTTHINGS_SCOPES`
+   - `SMARTTHINGS_REDIRECT_URI=https://<your-vercel-domain>/api/auth/smartthings/callback`
+4. Attach a Redis store and expose either:
+   - `KV_REST_API_URL` and `KV_REST_API_TOKEN`, or
+   - `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
+5. Register the exact HTTPS callback URL in SmartThings.
+
+Notes:
+- The Vercel deployment does not use `server/data/sessions.json`; that file only exists for local development.
+- The OAuth `return_to` parameter is restricted to same-origin paths, so callback redirects stay inside the app.
+- Cookies are marked `Secure` automatically when the request arrives over HTTPS.
 
 ---
 
@@ -159,9 +208,11 @@ Output is in `dist/`. Deploy that folder to any static host, then open the deplo
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Start Vite dev server |
+| `npm run dev:server` | Start the local OAuth backend in watch mode |
+| `npm run server` | Start the local OAuth backend |
 | `npm run build` | TypeScript build + Vite production build |
 | `npm run preview` | Preview production build locally |
-| `npm run lint` | Run ESLint on `src/` |
+| `npm run lint` | Run ESLint on `src/`, `server/`, and `api/` |
 
 ---
 

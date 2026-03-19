@@ -150,13 +150,11 @@
 
     <div id="config" class="container panel">
       <h1>Connect SmartThings</h1>
-      <p>Stored on this device only (encrypted when available).</p>
-      <form id="config-form">
-        <label for="pat">Personal Access Token (PAT)</label>
-        <input type="password" id="pat" name="pat" placeholder="Paste your SmartThings PAT" autocomplete="off" />
-        <button type="submit" id="config-save-btn">Save</button>
-        <p id="config-status" role="status" aria-live="polite"></p>
-      </form>
+      <p>Use SmartThings OAuth to connect this app. The backend stores refresh tokens and can renew access tokens when they expire.</p>
+      <p class="btn-group">
+        <button type="button" id="connect-smartthings-btn">Connect SmartThings</button>
+      </p>
+      <p id="config-status" role="status" aria-live="polite"></p>
     </div>
 
     <div id="open-in-even" class="container panel">
@@ -284,16 +282,18 @@
       </div>
 
       <div class="panel config-section">
-        <h2>SmartThings token</h2>
-        <p>Manage the saved SmartThings token for this device.</p>
+        <h2>SmartThings connection</h2>
+        <p>Manage the saved SmartThings connection for this device.</p>
         <p class="btn-group">
-          <button type="button" id="delete-token-btn" class="secondary">Delete token</button>
+          <button type="button" id="reconnect-smartthings-btn" class="secondary">Reconnect</button>
+          <button type="button" id="disconnect-smartthings-btn" class="secondary">Disconnect</button>
           <button type="button" id="toggle-debug-btn" class="secondary dev-only">Show debug log</button>
         </p>
-        <div id="delete-token-confirm" class="confirm-box" style="display: none;">
-          <p>Delete the saved token? You will need to enter a new one to continue.</p>
-          <button type="button" id="delete-token-confirm-cancel" class="secondary">Cancel</button>
-          <button type="button" id="delete-token-confirm-do" class="negative">Delete token</button>
+        <p id="smartthings-connection-status" role="status" aria-live="polite"></p>
+        <div id="disconnect-smartthings-confirm" class="confirm-box" style="display: none;">
+          <p>Disconnect SmartThings for this device? You will need to connect again to continue.</p>
+          <button type="button" id="disconnect-smartthings-confirm-cancel" class="secondary">Cancel</button>
+          <button type="button" id="disconnect-smartthings-confirm-do" class="negative">Disconnect</button>
         </div>
         <div id="debug-log-container" class="debug-box" style="display: none;">
           <div class="debug-title">Debug log</div>

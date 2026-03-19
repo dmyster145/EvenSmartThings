@@ -1,8 +1,9 @@
 /**
  * Even SmartThings — Application entry point.
  *
- * Flow: Bridge init → PAT from storage → SmartThings client → fetch scenes →
- * setup G2 list → rebuild list with scene names → subscribe events. Tap on list runs scene.
+ * Flow: Bridge init → backend session lookup → SmartThings access token →
+ * SmartThings client → fetch scenes → setup G2 list → rebuild list with scene names →
+ * subscribe events. Tap on list runs scene.
  */
 
 import { SmartThingsClient, BearerTokenAuthenticator, DeviceHealthState } from '@smartthings/core-sdk';
@@ -46,9 +47,14 @@ import {
   parseFavoriteCompositeId,
 } from './state/selectors';
 import { EvenHubBridge } from './evenhub/bridge';
-import { encryptPatOrPlaintext, decryptPat } from './crypto/pat-storage';
 import {
-  PAT_STORAGE_KEY,
+  disconnectSmartThings,
+  getSessionStatus,
+  getSmartThingsAccessToken,
+  startSmartThingsConnect,
+  type SessionStatus,
+} from './auth/api';
+import {
   SCENE_NAME_MAX_LEN,
   CONTAINER_ID_CONFIRMATION,
   CONTAINER_NAME_CONFIRMATION,
@@ -61,60 +67,112 @@ import { getStoredPreferences, setStoredPreferences } from './state/preferences-
 import { ImageRawDataUpdate } from '@evenrealities/even_hub_sdk';
 
 const CONFIG_PANEL_ID = 'config';
+const AUTH_RECONNECT_MESSAGE = 'SmartThings session expired or is unauthorized. Reconnect to continue.';
+const AUTH_CONFIG_MISSING_MESSAGE = 'SmartThings OAuth is not configured on the backend.';
+const AUTH_SERVICE_UNAVAILABLE_MESSAGE = 'SmartThings auth service is unavailable.';
+const AUTH_DISCONNECTED_MESSAGE = 'SmartThings is not connected for this device.';
 
-/** Get raw PAT string from bridge storage only. */
-async function getStoredPatFromBridge(hub: EvenHubBridge): Promise<string> {
-  const raw = await hub.getLocalStorage(PAT_STORAGE_KEY);
-  return (raw ?? '').trim();
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
-/** Get raw PAT string from browser localStorage only (when available). */
-function getStoredPatFromLocalStorage(): string {
-  try {
-    if (typeof localStorage === 'undefined') return '';
-    const raw = localStorage.getItem(PAT_STORAGE_KEY);
-    return (raw ?? '').trim();
-  } catch {
-    return '';
-  }
+function isSmartThingsAuthError(err: unknown): boolean {
+  if (!err) return false;
+  const maybeError = err as { response?: { status?: number }; status?: number };
+  const status = maybeError.response?.status ?? maybeError.status;
+  if (status === 401 || status === 403) return true;
+  const message = getErrorMessage(err).toLowerCase();
+  return (
+    message.includes('401') ||
+    message.includes('403') ||
+    message.includes('unauthorized') ||
+    message.includes('forbidden') ||
+    message.includes('access denied') ||
+    message.includes('invalid token') ||
+    message.includes('token expired') ||
+    message.includes('expired token')
+  );
 }
 
-/**
- * Load PAT by trying bridge first, then localStorage. If decryption fails for one source,
- * the other is tried so a single corrupted or context-dependent failure does not force re-entry.
- */
-async function getStoredPat(hub: EvenHubBridge): Promise<string> {
-  const fromBridge = await getStoredPatFromBridge(hub);
-  const fromLocal = getStoredPatFromLocalStorage();
-
-  const decryptedBridge = fromBridge ? await decryptPat(fromBridge) : '';
-  if (decryptedBridge.trim()) return decryptedBridge;
-
-  const decryptedLocal = fromLocal ? await decryptPat(fromLocal) : '';
-  if (decryptedLocal.trim()) return decryptedLocal;
-
-  return '';
+function formatSessionExpiry(expiresAt?: string): string {
+  if (!expiresAt) return 'Connected.';
+  const parsed = new Date(expiresAt);
+  if (Number.isNaN(parsed.getTime())) return 'Connected.';
+  return `Connected. Access token expires ${parsed.toLocaleString()}.`;
 }
 
-async function setStoredPat(hub: EvenHubBridge, value: string): Promise<void> {
-  const bridgeOk = await hub.setLocalStorage(PAT_STORAGE_KEY, value);
-  if (!bridgeOk) {
-    console.warn('[EvenSmartThings] Bridge storage write failed; token saved to localStorage only.');
-  }
-  try {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(PAT_STORAGE_KEY, value);
-  } catch {
-    // ignore
-  }
-}
+type AuthUI = {
+  showConnectPanel: (message: string, canConnect?: boolean) => void;
+  showConnectedState: (sessionStatus?: SessionStatus) => void;
+  setConnectionStatus: (message: string) => void;
+};
 
-async function clearStoredPat(hub: EvenHubBridge): Promise<void> {
-  await hub.setLocalStorage(PAT_STORAGE_KEY, '');
-  try {
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(PAT_STORAGE_KEY);
-  } catch {
-    // ignore
+function setupAuthUI(): AuthUI {
+  const connectBtn = document.getElementById('connect-smartthings-btn') as HTMLButtonElement | null;
+  const statusEl = document.getElementById('config-status');
+  const reconnectBtn = document.getElementById('reconnect-smartthings-btn') as HTMLButtonElement | null;
+  const disconnectBtn = document.getElementById('disconnect-smartthings-btn') as HTMLButtonElement | null;
+  const connectionStatusEl = document.getElementById('smartthings-connection-status');
+  const disconnectConfirmEl = document.getElementById('disconnect-smartthings-confirm');
+  const disconnectConfirmCancel = document.getElementById('disconnect-smartthings-confirm-cancel') as HTMLButtonElement | null;
+  const disconnectConfirmDo = document.getElementById('disconnect-smartthings-confirm-do') as HTMLButtonElement | null;
+
+  function setConfigStatus(msg: string): void {
+    if (statusEl) statusEl.textContent = msg;
   }
+
+  function setConnectionStatus(msg: string): void {
+    if (connectionStatusEl) connectionStatusEl.textContent = msg;
+  }
+
+  function setConnectEnabled(enabled: boolean): void {
+    if (connectBtn) connectBtn.disabled = !enabled;
+    if (reconnectBtn) reconnectBtn.disabled = !enabled;
+  }
+
+  if (connectBtn) {
+    connectBtn.onclick = () => startSmartThingsConnect();
+  }
+  if (reconnectBtn) {
+    reconnectBtn.onclick = () => startSmartThingsConnect();
+  }
+  if (disconnectBtn && disconnectConfirmEl) {
+    disconnectBtn.onclick = () => {
+      disconnectConfirmEl.style.display = 'block';
+    };
+  }
+  if (disconnectConfirmCancel && disconnectConfirmEl) {
+    disconnectConfirmCancel.onclick = () => {
+      disconnectConfirmEl.style.display = 'none';
+    };
+  }
+  if (disconnectConfirmDo && disconnectConfirmEl) {
+    disconnectConfirmDo.onclick = async () => {
+      disconnectConfirmDo.disabled = true;
+      try {
+        await disconnectSmartThings();
+        location.reload();
+      } catch (err) {
+        setConnectionStatus('Disconnect failed: ' + getErrorMessage(err));
+        disconnectConfirmDo.disabled = false;
+      }
+    };
+  }
+
+  return {
+    showConnectPanel(message, canConnect = true): void {
+      setConnectEnabled(canConnect);
+      setConfigStatus(message);
+      showPanel(CONFIG_PANEL_ID);
+    },
+    showConnectedState(sessionStatus): void {
+      setConfigStatus('');
+      setConnectEnabled(true);
+      setConnectionStatus(formatSessionExpiry(sessionStatus?.session?.expiresAt));
+      showGlassesActive();
+    },
+    setConnectionStatus,
+  };
 }
 const OPEN_IN_EVEN_ID = 'open-in-even';
 const GLASSES_ACTIVE_ID = 'glasses-active';
@@ -589,6 +647,7 @@ function normalizeDevices(devices: Device[]): DeviceEntry[] {
 }
 
 type ShowConfirmationFn = (result: ConfirmationResult) => Promise<void>;
+type WithSmartThingsClient = <T>(operation: (client: SmartThingsClient) => Promise<T>) => Promise<T>;
 
 function confirmationResultFromCounts(successCount: number, total: number): ConfirmationResult {
   if (total === 0 || successCount === 0) return 'failure';
@@ -598,10 +657,8 @@ function confirmationResultFromCounts(successCount: number, total: number): Conf
 
 async function runExecuteScene(
   store: ReturnType<typeof createStore>,
-  client: SmartThingsClient,
-  _hub: EvenHubBridge,
+  withSmartThingsClient: WithSmartThingsClient,
   selectedIndex: number,
-  _useRawImagesForIcons: boolean,
   showConfirmation: ShowConfirmationFn
 ): Promise<void> {
   const state = store.getState();
@@ -610,7 +667,9 @@ async function runExecuteScene(
 
   store.dispatch({ type: 'EXECUTE_START' });
   try {
-    const result = await client.scenes.execute(scene.sceneId) as { status?: string; results?: Array<{ status?: string }> } | undefined;
+    const result = await withSmartThingsClient((client) =>
+      client.scenes.execute(scene.sceneId) as Promise<{ status?: string; results?: Array<{ status?: string }> } | undefined>
+    );
     const status = result?.status;
     const success = status === 'success';
 
@@ -629,7 +688,7 @@ async function runExecuteScene(
 
     store.dispatch({ type: 'EXECUTE_END', success, errorMessage: success ? undefined : (status ?? 'unknown') });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = getErrorMessage(err);
     store.dispatch({ type: 'EXECUTE_END', success: false, errorMessage: message });
     await showConfirmation('failure');
   }
@@ -651,76 +710,26 @@ export async function initApp(): Promise<void> {
     return;
   }
 
-  let pat: string;
+  const authUI = setupAuthUI();
+  let initialSessionStatus: SessionStatus;
   try {
-    pat = await getStoredPat(hub);
+    initialSessionStatus = await getSessionStatus();
   } catch (err) {
-    console.warn('[EvenSmartThings] getStoredPat error:', err);
-    showPanel(OPEN_IN_EVEN_ID);
+    console.warn('[EvenSmartThings] getSessionStatus error:', err);
+    authUI.showConnectPanel(AUTH_SERVICE_UNAVAILABLE_MESSAGE, false);
     return;
   }
 
-  if (!pat.trim()) {
-    showPanel(CONFIG_PANEL_ID);
-    const form = document.getElementById('config-form') as HTMLFormElement | null;
-    const statusEl = document.getElementById('config-status');
-    const saveBtn = document.getElementById('config-save-btn');
-
-    function setStatus(msg: string): void {
-      if (statusEl) statusEl.textContent = msg;
-    }
-
-    if (form) {
-      form.onsubmit = (e) => {
-        e.preventDefault();
-        const input = document.getElementById('pat') as HTMLInputElement | null;
-        const value = input?.value?.trim() ?? '';
-        if (!value) {
-          setStatus('Enter a token.');
-          return;
-        }
-        if (saveBtn) (saveBtn as HTMLButtonElement).disabled = true;
-        setStatus('Saving...');
-        (async () => {
-          try {
-            const toStore = await encryptPatOrPlaintext(value);
-            await setStoredPat(hub, toStore);
-            setStatus('Saved. Reloading…');
-            location.reload();
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            setStatus('Error: ' + message);
-            if (saveBtn) (saveBtn as HTMLButtonElement).disabled = false;
-          }
-        })();
-      };
-    }
+  if (!initialSessionStatus.authenticated) {
+    authUI.showConnectPanel(
+      initialSessionStatus.configured ? AUTH_DISCONNECTED_MESSAGE : AUTH_CONFIG_MISSING_MESSAGE,
+      initialSessionStatus.configured
+    );
     return;
   }
 
-  showGlassesActive();
+  authUI.showConnectedState(initialSessionStatus);
 
-  const deleteTokenBtn = document.getElementById('delete-token-btn');
-  const deleteConfirmEl = document.getElementById('delete-token-confirm');
-  const deleteConfirmCancel = document.getElementById('delete-token-confirm-cancel');
-  const deleteConfirmDo = document.getElementById('delete-token-confirm-do');
-
-  if (deleteTokenBtn && deleteConfirmEl) {
-    deleteTokenBtn.onclick = () => {
-      deleteConfirmEl.style.display = 'block';
-    };
-  }
-  if (deleteConfirmCancel && deleteConfirmEl) {
-    deleteConfirmCancel.onclick = () => {
-      deleteConfirmEl.style.display = 'none';
-    };
-  }
-  if (deleteConfirmDo && deleteConfirmEl) {
-    deleteConfirmDo.onclick = async () => {
-      await clearStoredPat(hub);
-      location.reload();
-    };
-  }
   const toggleDebugBtn = document.getElementById('toggle-debug-btn');
   const debugLogContainer = document.getElementById('debug-log-container');
   if (toggleDebugBtn && debugLogContainer) {
@@ -731,10 +740,51 @@ export async function initApp(): Promise<void> {
     };
   }
 
-  const client = new SmartThingsClient(new BearerTokenAuthenticator(pat));
   const store = createStore(buildInitialState());
 
   let refreshPage: () => void = () => {};
+  let smartThingsClient: SmartThingsClient | null = null;
+  let authExpiredHandled = false;
+
+  async function createSmartThingsClient(forceRefresh = false): Promise<SmartThingsClient> {
+    if (forceRefresh) smartThingsClient = null;
+    if (smartThingsClient) return smartThingsClient;
+    const token = await getSmartThingsAccessToken();
+    smartThingsClient = new SmartThingsClient(new BearerTokenAuthenticator(token.accessToken));
+    authUI.setConnectionStatus(formatSessionExpiry(token.expiresAt ?? initialSessionStatus.session?.expiresAt));
+    return smartThingsClient;
+  }
+
+  async function handleTerminalAuthFailure(err: unknown): Promise<boolean> {
+    if (!isSmartThingsAuthError(err)) return false;
+    if (authExpiredHandled) return true;
+    authExpiredHandled = true;
+    smartThingsClient = null;
+    await disconnectSmartThings().catch(() => undefined);
+    store.dispatch({ type: 'AUTH_EXPIRED', message: AUTH_RECONNECT_MESSAGE });
+    refreshPage();
+    authUI.showConnectPanel(AUTH_RECONNECT_MESSAGE);
+    return true;
+  }
+
+  const withSmartThingsClient: WithSmartThingsClient = async <T>(
+    operation: (client: SmartThingsClient) => Promise<T>
+  ): Promise<T> => {
+    try {
+      const activeClient = await createSmartThingsClient(false);
+      return await operation(activeClient);
+    } catch (err) {
+      if (!isSmartThingsAuthError(err)) throw err;
+      try {
+        const refreshedClient = await createSmartThingsClient(true);
+        return await operation(refreshedClient);
+      } catch (retryErr) {
+        await handleTerminalAuthFailure(retryErr);
+        throw retryErr;
+      }
+    }
+  };
+
   (async () => {
     try {
       const prefs = await getStoredPreferences(hub);
@@ -758,10 +808,11 @@ export async function initApp(): Promise<void> {
 
   (async () => {
     try {
-      const scenes = await client.scenes.list();
+      const scenes = await withSmartThingsClient((client) => client.scenes.list());
       store.dispatch({ type: 'SCENES_LOADED', scenes: normalizeScenes(scenes) });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      if (await handleTerminalAuthFailure(err)) return;
+      const message = getErrorMessage(err);
       store.dispatch({ type: 'SCENES_ERROR', message });
     }
   })();
@@ -813,8 +864,8 @@ export async function initApp(): Promise<void> {
         return;
       }
       const [roomsRes, devicesRes] = await Promise.all([
-        client.rooms.list(locationId),
-        client.devices.list({ locationId }).catch(() => []),
+        withSmartThingsClient((client) => client.rooms.list(locationId)),
+        withSmartThingsClient((client) => client.devices.list({ locationId }).catch(() => [])),
       ]);
       store.dispatch({
         type: 'ROOMS_LOADED',
@@ -825,7 +876,11 @@ export async function initApp(): Promise<void> {
       });
       store.dispatch({ type: 'ALL_DEVICES_LOADED', devices: normalizeDevices(devicesRes) });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      if (await handleTerminalAuthFailure(err)) {
+        refreshPage();
+        return;
+      }
+      const message = getErrorMessage(err);
       store.dispatch({ type: 'ROOMS_ERROR', message });
     }
     refreshPage();
@@ -833,10 +888,10 @@ export async function initApp(): Promise<void> {
 
   async function getLocationId(): Promise<string | undefined> {
     try {
-      const locations = await client.locations.list();
+      const locations = await withSmartThingsClient((client) => client.locations.list());
       return locations[0]?.locationId;
     } catch {
-      const scenes = await client.scenes.list();
+      const scenes = await withSmartThingsClient((client) => client.scenes.list());
       return scenes[0]?.locationId;
     }
   }
@@ -853,7 +908,9 @@ export async function initApp(): Promise<void> {
     try {
       const locationId = await getLocationId();
       if (!locationId) return;
-      const devices = await client.devices.list({ locationId, includeHealth: true });
+      const devices = await withSmartThingsClient((client) =>
+        client.devices.list({ locationId, includeHealth: true })
+      );
       let online = 0;
       let offline = 0;
       for (const d of devices) {
@@ -862,7 +919,7 @@ export async function initApp(): Promise<void> {
         else if (health === 'OFFLINE') offline++;
         else {
           try {
-            const h = await client.devices.getHealth(d.deviceId);
+            const h = await withSmartThingsClient((client) => client.devices.getHealth(d.deviceId));
             if (h.state === DeviceHealthState.ONLINE) online++;
             else if (h.state === DeviceHealthState.OFFLINE) offline++;
           } catch {
@@ -874,7 +931,8 @@ export async function initApp(): Promise<void> {
         type: 'STATS_GLOBAL',
         stats: { total: devices.length, online, offline },
       });
-    } catch {
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
       // Leave global stats unset if fetching fails.
     }
     // Update only the stats panel so list selection doesn't jump to top
@@ -897,7 +955,7 @@ export async function initApp(): Promise<void> {
       let offline = 0;
       for (const d of devices) {
         try {
-          const h = await client.devices.getHealth(d.deviceId);
+          const h = await withSmartThingsClient((client) => client.devices.getHealth(d.deviceId));
           if (h.state === DeviceHealthState.ONLINE) online++;
           else if (h.state === DeviceHealthState.OFFLINE) offline++;
         } catch {
@@ -908,7 +966,8 @@ export async function initApp(): Promise<void> {
         type: 'STATS_ROOM',
         stats: { total: devices.length, online, offline },
       });
-    } catch {
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
       store.dispatch({ type: 'STATS_ROOM', stats: null });
     }
     if (store.getState().preferences.statsVisibility.enabled) {
@@ -1095,9 +1154,9 @@ export async function initApp(): Promise<void> {
   async function loadDeviceStats(deviceId: string): Promise<void> {
     try {
       const [health, status, presentation] = await Promise.all([
-        client.devices.getHealth(deviceId),
-        client.devices.getStatus(deviceId),
-        client.devices.getPresentation(deviceId).catch(() => null),
+        withSmartThingsClient((client) => client.devices.getHealth(deviceId)),
+        withSmartThingsClient((client) => client.devices.getStatus(deviceId)),
+        withSmartThingsClient((client) => client.devices.getPresentation(deviceId).catch(() => null)),
       ]);
       const statusShape = status as DeviceStatusShape;
       const onlineStatus =
@@ -1115,7 +1174,8 @@ export async function initApp(): Promise<void> {
         type: 'STATS_DEVICE',
         stats: { onlineStatus, switchStatus, brightness, capabilityReadings },
       });
-    } catch {
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
       store.dispatch({ type: 'STATS_DEVICE', stats: null });
     }
     if (store.getState().preferences.statsVisibility.enabled) {
@@ -1174,7 +1234,7 @@ export async function initApp(): Promise<void> {
     const results = response?.results ?? [];
     if (results.some((r) => r.status === 'FAILED')) return false;
     try {
-      const health = await client.devices.getHealth(deviceId);
+      const health = await withSmartThingsClient((client) => client.devices.getHealth(deviceId));
       if (health.state === DeviceHealthState.OFFLINE) return false;
     } catch {
       // Command already accepted; do not fail solely because health lookup failed.
@@ -1184,25 +1244,30 @@ export async function initApp(): Promise<void> {
 
   async function runDeviceSwitch(deviceId: string, on: boolean): Promise<void> {
     try {
-      const response = await client.devices.executeCommand(deviceId, {
-        capability: 'switch',
-        command: on ? 'on' : 'off',
-      });
+      const response = await withSmartThingsClient((client) =>
+        client.devices.executeCommand(deviceId, {
+          capability: 'switch',
+          command: on ? 'on' : 'off',
+        })
+      );
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
-    } catch {
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
       await showConfirmation('failure');
     }
   }
 
   async function runDeviceSetLevel(deviceId: string, level: number): Promise<void> {
     try {
-      const response = await client.devices.executeCommand(deviceId, {
-        capability: 'switchLevel',
-        command: 'setLevel',
-        arguments: [level],
-      });
+      const response = await withSmartThingsClient((client) =>
+        client.devices.executeCommand(deviceId, {
+          capability: 'switchLevel',
+          command: 'setLevel',
+          arguments: [level],
+        })
+      );
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) {
@@ -1219,7 +1284,8 @@ export async function initApp(): Promise<void> {
         }
         // Skip immediate refetch because SmartThings can return stale brightness right after setLevel.
       }
-    } catch {
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
       await showConfirmation('failure');
     }
   }
@@ -1233,13 +1299,16 @@ export async function initApp(): Promise<void> {
     let successCount = 0;
     for (const d of devices) {
       try {
-        const response = await client.devices.executeCommand(d.deviceId, {
-          capability: 'switch',
-          command: on ? 'on' : 'off',
-        });
+        const response = await withSmartThingsClient((client) =>
+          client.devices.executeCommand(d.deviceId, {
+            capability: 'switch',
+            command: on ? 'on' : 'off',
+          })
+        );
         const ok = await isDeviceCommandSuccess(d.deviceId, response);
         if (ok) successCount++;
-      } catch {
+      } catch (err) {
+        if (await handleTerminalAuthFailure(err)) break;
         // Individual failures are captured by successCount.
       }
     }
@@ -1255,14 +1324,17 @@ export async function initApp(): Promise<void> {
     let successCount = 0;
     for (const d of devices) {
       try {
-        const response = await client.devices.executeCommand(d.deviceId, {
-          capability: 'switchLevel',
-          command: 'setLevel',
-          arguments: [level],
-        });
+        const response = await withSmartThingsClient((client) =>
+          client.devices.executeCommand(d.deviceId, {
+            capability: 'switchLevel',
+            command: 'setLevel',
+            arguments: [level],
+          })
+        );
         const ok = await isDeviceCommandSuccess(d.deviceId, response);
         if (ok) successCount++;
-      } catch {
+      } catch (err) {
+        if (await handleTerminalAuthFailure(err)) break;
         // Individual failures are captured by successCount.
       }
     }
@@ -1272,12 +1344,16 @@ export async function initApp(): Promise<void> {
   async function loadDevicesForRoom(roomId: string): Promise<void> {
     try {
       const locationId = await getLocationId();
-      const devices = await client.rooms.listDevices(roomId, locationId);
+      const devices = await withSmartThingsClient((client) => client.rooms.listDevices(roomId, locationId));
       store.dispatch({ type: 'DEVICES_LOADED', devices: normalizeDevices(devices) });
       refreshPage();
       void loadRoomStats();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      if (await handleTerminalAuthFailure(err)) {
+        refreshPage();
+        return;
+      }
+      const message = getErrorMessage(err);
       store.dispatch({ type: 'DEVICES_ERROR', message });
       refreshPage();
     }
@@ -1429,7 +1505,7 @@ export async function initApp(): Promise<void> {
             page === 0 ? listIndex - 1 : firstSlots + (page - 1) * SCENES_PER_PAGE + (listIndex - 1);
           if (actualSceneIndex >= 0 && actualSceneIndex < getOrderedScenes(state).length) {
             store.dispatch({ type: 'TAP', selectedIndex: listIndex });
-            void runExecuteScene(store, client, hub, actualSceneIndex, useRawImages, showConfirmation);
+            void runExecuteScene(store, withSmartThingsClient, actualSceneIndex, showConfirmation);
           }
         } else if (listView === 'favorites') {
           if (listIndex === 0) {
@@ -1459,7 +1535,7 @@ export async function initApp(): Promise<void> {
               const sceneIndex = getOrderedScenes(state).findIndex((s) => s.sceneId === favorite.id);
               if (sceneIndex >= 0) {
                 store.dispatch({ type: 'TAP', selectedIndex: listIndex });
-                void runExecuteScene(store, client, hub, sceneIndex, useRawImages, showConfirmation);
+                void runExecuteScene(store, withSmartThingsClient, sceneIndex, showConfirmation);
               }
             } else {
               store.dispatch({ type: 'NAV_FAVORITE_DEVICE', deviceId: favorite.id });
