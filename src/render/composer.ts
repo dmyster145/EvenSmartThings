@@ -71,7 +71,7 @@ const AUTH_EXPIRED_STATS_TITLE = 'SmartThings Auth';
 const AUTH_EXPIRED_STATS_DETAIL = 'Reconnect in app';
 const CONFIRMATION_MARGIN = 8;
 const TEXT_MODE_STATS_HEIGHT = DISPLAY_HEIGHT - CONFIRMATION_HEIGHT - CONFIRMATION_MARGIN;
-const TEXT_MODE_LIST_TOTAL_LINES = 11;
+const TEXT_MODE_LIST_TOTAL_LINES = 10;
 const TEXT_MODE_LIST_MIN_VISIBLE_ROWS = 4;
 
 function truncateName(name: string, fallback = 'Scene'): string {
@@ -481,19 +481,7 @@ export function composeTextModeListContent(state: AppState): string {
   const itemNames = listItemNamesForState(state);
   const focusIndex = Math.min(Math.max(state.focusedListIndex, 0), Math.max(itemNames.length - 1, 0));
   const title = textModeTitle(state);
-  const footerLines: string[] = [];
-  if (state.status === 'executing') {
-    footerLines.push('', 'Working...');
-  } else if (state.authStatus === 'expired') {
-    footerLines.push('', 'Reconnect in app');
-  } else if (state.errorMessage && itemNames.length < 16) {
-    footerLines.push('', truncateStatsName(state.errorMessage, 'Error'));
-  }
-
-  const maxVisibleRows = Math.max(
-    TEXT_MODE_LIST_MIN_VISIBLE_ROWS,
-    TEXT_MODE_LIST_TOTAL_LINES - 1 - footerLines.length
-  );
+  const maxVisibleRows = Math.max(TEXT_MODE_LIST_MIN_VISIBLE_ROWS, TEXT_MODE_LIST_TOTAL_LINES - 1);
   const visibleRows = Math.min(itemNames.length, maxVisibleRows);
   const startIndex = Math.max(
     0,
@@ -510,7 +498,6 @@ export function composeTextModeListContent(state: AppState): string {
     const name = itemName.trim().length > 0 ? itemName : ' ';
     lines.push(`${index === focusIndex ? '>' : ' '} ${name}`);
   }
-  lines.push(...footerLines);
   return lines.join('\n');
 }
 

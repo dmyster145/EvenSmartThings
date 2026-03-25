@@ -765,6 +765,14 @@ export async function initApp(): Promise<void> {
   const debugLogContainer = document.getElementById('debug-log-container');
   const debugLog = document.getElementById('debug-log');
   const debugLines: string[] = [];
+  type WakeLockSentinelLike = {
+    released?: boolean;
+    release?: () => Promise<void>;
+    addEventListener?: (type: 'release', listener: () => void) => void;
+  };
+  let wakeLockSentinel: WakeLockSentinelLike | null = null;
+  let wakeLockUnsupportedLogged = false;
+  let wakeLockFailureLogged = false;
 
   function setDebugVisible(visible: boolean): void {
     if (!debugLogContainer) return;
@@ -781,6 +789,58 @@ export async function initApp(): Promise<void> {
     if (debugLog) debugLog.textContent = debugLines.join('\n');
     console.log(`[SmartThingsControls] ${message}`);
     if (reveal) setDebugVisible(true);
+  }
+
+  async function requestWakeLock(reason: string): Promise<void> {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      return;
+    }
+    const wakeLockApi = (navigator as Navigator & {
+      wakeLock?: {
+        request: (type: 'screen') => Promise<WakeLockSentinelLike>;
+      };
+    }).wakeLock;
+    if (!wakeLockApi) {
+      if (!wakeLockUnsupportedLogged) {
+        wakeLockUnsupportedLogged = true;
+        appendDebugLog('Wake lock is not supported in this webview. The phone may suspend commands when locked.');
+      }
+      return;
+    }
+    if (wakeLockSentinel && wakeLockSentinel.released === false) {
+      return;
+    }
+    try {
+      const sentinel = await wakeLockApi.request('screen');
+      wakeLockSentinel = sentinel;
+      wakeLockFailureLogged = false;
+      sentinel.addEventListener?.('release', () => {
+        wakeLockSentinel = null;
+        appendDebugLog('Screen wake lock released.');
+      });
+      appendDebugLog(`Screen wake lock active (${reason}).`);
+    } catch (err) {
+      wakeLockSentinel = null;
+      if (!wakeLockFailureLogged) {
+        wakeLockFailureLogged = true;
+        appendDebugLog(
+          `Screen wake lock request failed (${reason}): ${getErrorMessage(err)}. The phone may suspend commands when locked.`,
+          true
+        );
+      }
+    }
+  }
+
+  async function releaseWakeLock(reason: string): Promise<void> {
+    if (!wakeLockSentinel?.release) return;
+    try {
+      await wakeLockSentinel.release();
+      appendDebugLog(`Screen wake lock released (${reason}).`);
+    } catch (err) {
+      appendDebugLog(`Screen wake lock release failed (${reason}): ${getErrorMessage(err)}`);
+    } finally {
+      wakeLockSentinel = null;
+    }
   }
 
   if (toggleDebugBtn && debugLogContainer) {
@@ -849,6 +909,7 @@ export async function initApp(): Promise<void> {
 
   authUI.showConnectedState(initialSessionStatus);
   appendDebugLog('SmartThings session is active.');
+  void requestWakeLock('startup');
 
   const store = createStore(buildInitialState());
   const storedLaunchResumePromise = getStoredLaunchResume(hub).catch(() => null);
@@ -856,6 +917,11 @@ export async function initApp(): Promise<void> {
   let refreshPage: () => void = () => {};
   let smartThingsClient: SmartThingsClient | null = null;
   let authExpiredHandled = false;
+
+  function invalidateSmartThingsClient(reason: string): void {
+    smartThingsClient = null;
+    appendDebugLog(`SmartThings client invalidated (${reason}).`);
+  }
 
   async function createSmartThingsClient(forceRefresh = false): Promise<SmartThingsClient> {
     if (forceRefresh) smartThingsClient = null;
@@ -870,7 +936,7 @@ export async function initApp(): Promise<void> {
     if (!isSmartThingsAuthError(err)) return false;
     if (authExpiredHandled) return true;
     authExpiredHandled = true;
-    smartThingsClient = null;
+    invalidateSmartThingsClient('auth failure');
     await disconnectSmartThings().catch(() => undefined);
     store.dispatch({ type: 'AUTH_EXPIRED', message: AUTH_RECONNECT_MESSAGE });
     refreshPage();
@@ -2236,12 +2302,15 @@ export async function initApp(): Promise<void> {
 
     const task = (async () => {
       appendDebugLog(`Resume sync triggered (${reason}).`);
+      invalidateSmartThingsClient(`resume:${reason}`);
       await hub.init(3000);
       appendDebugLog(`Resume bridge refresh complete (${reason}). bridge=${hub.hasBridge()}`);
       if (!hub.hasBridge()) {
         appendDebugLog(`Resume bridge refresh failed (${reason}).`, true);
         return;
       }
+
+      await requestWakeLock(`resume:${reason}`);
 
       attachHubEventSubscription(`resume:${reason}`);
 
@@ -2257,7 +2326,15 @@ export async function initApp(): Promise<void> {
           );
           return;
         }
+        initialSessionStatus = sessionStatus;
+        authExpiredHandled = false;
         authUI.showConnectedState(sessionStatus);
+        try {
+          await createSmartThingsClient(true);
+          appendDebugLog(`SmartThings client refreshed (${reason}).`);
+        } catch (err) {
+          appendDebugLog(`SmartThings client refresh failed (${reason}): ${getErrorMessage(err)}`, true);
+        }
       } catch (err) {
         appendDebugLog(`Resume session status failed (${reason}): ${getErrorMessage(err)}`, true);
       }
@@ -2276,16 +2353,24 @@ export async function initApp(): Promise<void> {
   }
 
   const visibilityHandler = () => {
-    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      invalidateSmartThingsClient('hidden');
+      void releaseWakeLock('hidden');
+      return;
+    }
+    void requestWakeLock('visibilitychange');
     void resumeBridgeSession('visibilitychange');
   };
   const pageshowHandler = () => {
+    void requestWakeLock('pageshow');
     void resumeBridgeSession('pageshow');
   };
   const focusHandler = () => {
+    void requestWakeLock('focus');
     void resumeBridgeSession('focus');
   };
   const onlineHandler = () => {
+    void requestWakeLock('online');
     void resumeBridgeSession('online');
   };
 
@@ -2297,6 +2382,7 @@ export async function initApp(): Promise<void> {
     window.addEventListener('focus', focusHandler);
     window.addEventListener('online', onlineHandler);
     window.addEventListener('beforeunload', () => {
+      void releaseWakeLock('beforeunload');
       if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
         document.removeEventListener('visibilitychange', visibilityHandler);
       }
