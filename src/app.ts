@@ -59,9 +59,13 @@ import {
 import { EvenHubBridge } from './evenhub/bridge';
 import {
   disconnectSmartThings,
+  executeBatchDeviceCommandsViaServer,
+  executeDeviceCommandViaServer,
+  executeSceneViaServer,
   getSessionStatus,
   getSmartThingsAccessToken,
   startSmartThingsConnect,
+  type SmartThingsBatchRelayResult,
   type SessionStatus,
 } from './auth/api';
 import {
@@ -720,7 +724,6 @@ function confirmationResultFromCounts(successCount: number, total: number): Conf
 
 async function runExecuteScene(
   store: ReturnType<typeof createStore>,
-  withSmartThingsClient: WithSmartThingsClient,
   selectedIndex: number,
   showConfirmation: ShowConfirmationFn
 ): Promise<void> {
@@ -730,9 +733,7 @@ async function runExecuteScene(
 
   store.dispatch({ type: 'EXECUTE_START' });
   try {
-    const result = await withSmartThingsClient((client) =>
-      client.scenes.execute(scene.sceneId) as Promise<{ status?: string; results?: Array<{ status?: string }> } | undefined>
-    );
+    const result = await executeSceneViaServer(scene.sceneId);
     const status = result?.status;
     const success = status === 'success';
 
@@ -1529,6 +1530,9 @@ export async function initApp(): Promise<void> {
   ): Promise<boolean> {
     const results = response?.results ?? [];
     if (results.some((r) => r.status === 'FAILED')) return false;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      return true;
+    }
     try {
       const health = await withSmartThingsClient((client) => client.devices.getHealth(deviceId));
       if (health.state === DeviceHealthState.OFFLINE) return false;
@@ -1540,12 +1544,7 @@ export async function initApp(): Promise<void> {
 
   async function runDeviceSwitch(deviceId: string, on: boolean): Promise<void> {
     try {
-      const response = await withSmartThingsClient((client) =>
-        client.devices.executeCommand(deviceId, {
-          capability: 'switch',
-          command: on ? 'on' : 'off',
-        })
-      );
+      const response = await executeDeviceCommandViaServer(deviceId, 'switch', on ? 'on' : 'off');
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
@@ -1557,13 +1556,7 @@ export async function initApp(): Promise<void> {
 
   async function runDeviceSetLevel(deviceId: string, level: number): Promise<void> {
     try {
-      const response = await withSmartThingsClient((client) =>
-        client.devices.executeCommand(deviceId, {
-          capability: 'switchLevel',
-          command: 'setLevel',
-          arguments: [level],
-        })
-      );
+      const response = await executeDeviceCommandViaServer(deviceId, 'switchLevel', 'setLevel', [level]);
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) {
@@ -1590,22 +1583,20 @@ export async function initApp(): Promise<void> {
       await showConfirmation('failure');
       return;
     }
-    let successCount = 0;
-    for (const d of devices) {
-      try {
-        const response = await withSmartThingsClient((client) =>
-          client.devices.executeCommand(d.deviceId, {
-            capability: 'switch',
-            command: on ? 'on' : 'off',
-          })
-        );
-        const ok = await isDeviceCommandSuccess(d.deviceId, response);
-        if (ok) successCount++;
-      } catch (err) {
-        if (await handleTerminalAuthFailure(err)) break;
-        // Individual failures are captured by successCount.
-      }
+    let results: SmartThingsBatchRelayResult[] = [];
+    try {
+      const response = await executeBatchDeviceCommandsViaServer(
+        devices.map((device) => ({
+          deviceId: device.deviceId,
+          capability: 'switch',
+          command: on ? 'on' : 'off',
+        }))
+      );
+      results = response.results ?? [];
+    } catch (err) {
+      if (await handleTerminalAuthFailure(err)) return;
     }
+    const successCount = results.filter((entry) => entry.ok).length;
     await showConfirmation(confirmationResultFromCounts(successCount, devices.length));
   }
 
@@ -1615,23 +1606,21 @@ export async function initApp(): Promise<void> {
       await showConfirmation('failure');
       return;
     }
-    let successCount = 0;
-    for (const d of devices) {
-      try {
-        const response = await withSmartThingsClient((client) =>
-          client.devices.executeCommand(d.deviceId, {
-            capability: 'switchLevel',
-            command: 'setLevel',
-            arguments: [level],
-          })
-        );
-        const ok = await isDeviceCommandSuccess(d.deviceId, response);
-        if (ok) successCount++;
-      } catch (err) {
-        if (await handleTerminalAuthFailure(err)) break;
-        // Individual failures are captured by successCount.
-      }
+    let results: SmartThingsBatchRelayResult[] = [];
+    try {
+      const response = await executeBatchDeviceCommandsViaServer(
+        devices.map((device) => ({
+          deviceId: device.deviceId,
+          capability: 'switchLevel',
+          command: 'setLevel',
+          arguments: [level],
+        }))
+      );
+      results = response.results ?? [];
+    } catch (err) {
+      if (await handleTerminalAuthFailure(err)) return;
     }
+    const successCount = results.filter((entry) => entry.ok).length;
     await showConfirmation(confirmationResultFromCounts(successCount, devices.length));
   }
 
@@ -1937,7 +1926,7 @@ export async function initApp(): Promise<void> {
             page === 0 ? listIndex - 1 : firstSlots + (page - 1) * SCENES_PER_PAGE + (listIndex - 1);
           if (actualSceneIndex >= 0 && actualSceneIndex < getOrderedScenes(state).length) {
             store.dispatch({ type: 'TAP', selectedIndex: listIndex });
-            void runExecuteScene(store, withSmartThingsClient, actualSceneIndex, showConfirmation);
+            void runExecuteScene(store, actualSceneIndex, showConfirmation);
           }
         } else if (listView === 'favorites') {
           if (listIndex === 0) {
@@ -1967,7 +1956,7 @@ export async function initApp(): Promise<void> {
               const sceneIndex = getOrderedScenes(state).findIndex((s) => s.sceneId === favorite.id);
               if (sceneIndex >= 0) {
                 store.dispatch({ type: 'TAP', selectedIndex: listIndex });
-                void runExecuteScene(store, withSmartThingsClient, sceneIndex, showConfirmation);
+                void runExecuteScene(store, sceneIndex, showConfirmation);
               }
             } else {
               store.dispatch({ type: 'NAV_FAVORITE_DEVICE', deviceId: favorite.id });

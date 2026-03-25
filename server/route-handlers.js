@@ -165,6 +165,42 @@ function sendServerError(response, err) {
   });
 }
 
+const SMARTTHINGS_API_BASE_URL = 'https://api.smartthings.com/v1';
+
+function smartThingsErrorMessage(payload, status) {
+  if (typeof payload?.message === 'string' && payload.message) return payload.message;
+  if (typeof payload?.error === 'string' && payload.error) return payload.error;
+  return `SmartThings request failed with status ${status}`;
+}
+
+async function smartThingsApiRequest(session, path, options = {}) {
+  const response = await fetch(`${SMARTTHINGS_API_BASE_URL}${path}`, {
+    method: options.method ?? 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${session.accessToken}`,
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const payload = await response.json().catch(() => ({}));
+  return {
+    ok: response.ok,
+    status: response.status,
+    payload,
+  };
+}
+
+function didSmartThingsCommandSucceed(payload) {
+  const results = Array.isArray(payload?.results) ? payload.results : [];
+  if (results.some((entry) => entry?.status === 'FAILED')) return false;
+  if (typeof payload?.status === 'string') {
+    const normalized = payload.status.toLowerCase();
+    if (normalized === 'failed' || normalized === 'error') return false;
+  }
+  return true;
+}
+
 export async function handleHealthRequest(request, response) {
   try {
     if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);
@@ -240,6 +276,133 @@ export async function handleAccessTokenRequest(request, response) {
       scope: session.scope,
       tokenType: session.tokenType,
     });
+  } catch (err) {
+    return sendServerError(response, err);
+  }
+}
+
+export async function handleSmartThingsExecuteRequest(request, response) {
+  try {
+    if (request.method !== 'POST') return methodNotAllowed(response, ['POST']);
+    const session = await getAuthenticatedSession(request);
+    if (!session) {
+      return json(response, 401, {
+        error: 'Not authenticated',
+        ...serverConfigurationSummary(),
+      });
+    }
+    refreshSessionCookie(response, request, session);
+
+    const body = await readJsonBody(request);
+    const kind = body?.kind;
+
+    if (kind === 'scene') {
+      const sceneId = typeof body?.sceneId === 'string' ? body.sceneId.trim() : '';
+      if (!sceneId) {
+        return json(response, 400, { error: 'sceneId is required' });
+      }
+      const result = await smartThingsApiRequest(session, `/scenes/${encodeURIComponent(sceneId)}/execute`, {
+        method: 'POST',
+      });
+      if (!result.ok) {
+        return json(response, result.status, {
+          error: smartThingsErrorMessage(result.payload, result.status),
+          response: result.payload,
+        });
+      }
+      return json(response, 200, result.payload);
+    }
+
+    if (kind === 'device') {
+      const deviceId = typeof body?.deviceId === 'string' ? body.deviceId.trim() : '';
+      const capability = typeof body?.capability === 'string' ? body.capability.trim() : '';
+      const command = typeof body?.command === 'string' ? body.command.trim() : '';
+      const args = Array.isArray(body?.arguments) ? body.arguments : [];
+      if (!deviceId || !capability || !command) {
+        return json(response, 400, { error: 'deviceId, capability, and command are required' });
+      }
+      const result = await smartThingsApiRequest(
+        session,
+        `/devices/${encodeURIComponent(deviceId)}/commands`,
+        {
+          method: 'POST',
+          body: {
+            commands: [
+              {
+                component: 'main',
+                capability,
+                command,
+                arguments: args,
+              },
+            ],
+          },
+        }
+      );
+      if (!result.ok) {
+        return json(response, result.status, {
+          error: smartThingsErrorMessage(result.payload, result.status),
+          response: result.payload,
+        });
+      }
+      return json(response, 200, result.payload);
+    }
+
+    if (kind === 'batch-device') {
+      const commands = Array.isArray(body?.commands) ? body.commands : [];
+      if (commands.length === 0) {
+        return json(response, 400, { error: 'commands is required' });
+      }
+
+      const results = await Promise.all(
+        commands.map(async (entry) => {
+          const deviceId = typeof entry?.deviceId === 'string' ? entry.deviceId.trim() : '';
+          const capability = typeof entry?.capability === 'string' ? entry.capability.trim() : '';
+          const command = typeof entry?.command === 'string' ? entry.command.trim() : '';
+          const args = Array.isArray(entry?.arguments) ? entry.arguments : [];
+          if (!deviceId || !capability || !command) {
+            return {
+              deviceId,
+              ok: false,
+              error: 'deviceId, capability, and command are required',
+            };
+          }
+          const result = await smartThingsApiRequest(
+            session,
+            `/devices/${encodeURIComponent(deviceId)}/commands`,
+            {
+              method: 'POST',
+              body: {
+                commands: [
+                  {
+                    component: 'main',
+                    capability,
+                    command,
+                    arguments: args,
+                  },
+                ],
+              },
+            }
+          );
+          if (!result.ok) {
+            return {
+              deviceId,
+              ok: false,
+              error: smartThingsErrorMessage(result.payload, result.status),
+            };
+          }
+          return {
+            deviceId,
+            ok: didSmartThingsCommandSucceed(result.payload),
+            status: typeof result.payload?.status === 'string' ? result.payload.status : undefined,
+            results: Array.isArray(result.payload?.results) ? result.payload.results : [],
+          };
+        })
+      );
+
+      return json(response, 200, { results });
+    }
+
+    return json(response, 400, { error: 'Unsupported command kind' });
   } catch (err) {
     return sendServerError(response, err);
   }

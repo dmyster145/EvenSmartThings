@@ -9,6 +9,7 @@ import {
   handleHealthRequest,
   handleSessionLogoutRequest,
   handleSessionRequest,
+  handleSmartThingsExecuteRequest,
   handleSmartAppWebhookRequest,
 } from './route-handlers.js';
 
@@ -19,6 +20,7 @@ const routeHandlers = new Map([
   ['/api/session', handleSessionRequest],
   ['/api/session/logout', handleSessionLogoutRequest],
   ['/api/smartthings/access-token', handleAccessTokenRequest],
+  ['/api/smartthings/execute', handleSmartThingsExecuteRequest],
   ['/api/auth/smartthings/start', handleAuthStartRequest],
   ['/api/auth/smartthings/callback', handleAuthCallbackRequest],
   ['/api/smartapp', handleSmartAppWebhookRequest],

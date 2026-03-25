@@ -19,6 +19,19 @@ export type AccessTokenResponse = {
   tokenType?: string;
 };
 
+export type SmartThingsRelayResponse = {
+  status?: string;
+  results?: Array<{ status?: string }>;
+};
+
+export type SmartThingsBatchRelayResult = {
+  deviceId: string;
+  ok: boolean;
+  status?: string;
+  results?: Array<{ status?: string }>;
+  error?: string;
+};
+
 type HttpError = Error & { status?: number };
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -58,6 +71,52 @@ export async function disconnectSmartThings(): Promise<void> {
     headers: { Accept: 'application/json' },
   });
   await parseJsonResponse(response);
+}
+
+async function executeSmartThingsRelayRequest<T>(body: Record<string, unknown>): Promise<T> {
+  const response = await fetch('/api/smartthings/execute', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    cache: 'no-store',
+    keepalive: true,
+    body: JSON.stringify(body),
+  });
+  return parseJsonResponse<T>(response);
+}
+
+export async function executeSceneViaServer(sceneId: string): Promise<SmartThingsRelayResponse> {
+  return executeSmartThingsRelayRequest<SmartThingsRelayResponse>({
+    kind: 'scene',
+    sceneId,
+  });
+}
+
+export async function executeDeviceCommandViaServer(
+  deviceId: string,
+  capability: string,
+  command: string,
+  args: unknown[] = []
+): Promise<SmartThingsRelayResponse> {
+  return executeSmartThingsRelayRequest<SmartThingsRelayResponse>({
+    kind: 'device',
+    deviceId,
+    capability,
+    command,
+    arguments: args,
+  });
+}
+
+export async function executeBatchDeviceCommandsViaServer(
+  commands: Array<{ deviceId: string; capability: string; command: string; arguments?: unknown[] }>
+): Promise<{ results: SmartThingsBatchRelayResult[] }> {
+  return executeSmartThingsRelayRequest<{ results: SmartThingsBatchRelayResult[] }>({
+    kind: 'batch-device',
+    commands,
+  });
 }
 
 export function startSmartThingsConnect(returnTo?: string): void {
