@@ -4,7 +4,6 @@ import {
   Badge,
   Button,
   Card,
-  ListItem,
   Page,
   ScreenHeader,
   SectionHeader,
@@ -111,8 +110,8 @@ const CONNECTION_ROWS: InfoRow[] = [
     icon: 'alert',
   },
   {
-    title: 'Debug only when needed',
-    subtitle: 'The debug log is hidden by default so the core companion stays focused on fast setup changes.',
+    title: 'Keep the phone nearby',
+    subtitle: 'The phone companion stays responsible for bridge connectivity and SmartThings routing while you use the glasses.',
     icon: 'settings',
   },
 ];
@@ -139,30 +138,6 @@ function IconForKey({ icon }: { icon: CompanionIconKey }): ReactElement {
   return <IcStatusInfo {...common} />;
 }
 
-function HeaderBar(): ReactElement {
-  return (
-    <div className="mx-auto w-full max-w-[760px] px-3 pt-3">
-      <Card
-        padding="sm"
-        className={`bg-surface shadow-[0_8px_20px_rgba(0,0,0,0.04)] ${borderClassName()}`}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-[6px] bg-accent-alpha text-text">
-              <IcMenuHome width={20} height={20} />
-            </span>
-            <div>
-              <p className="text-[11px] tracking-[-0.11px] uppercase text-text-dim">Even Hub Companion</p>
-              <p className="text-[15px] tracking-[-0.15px] text-text">SmartThings Controls</p>
-            </div>
-          </div>
-          <Badge variant="accent">Smart Home</Badge>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
 function SurfaceCard({ children, className = '' }: { children: ReactNode; className?: string }): ReactElement {
   return (
     <Card
@@ -183,8 +158,8 @@ function IntroCard(): ReactElement {
       <div className="mb-4 h-1 rounded-full bg-surface-lighter" />
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-[6px] bg-accent-alpha text-text">
-            <IcMenuHome width={22} height={22} />
+          <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[6px] bg-accent-alpha">
+            <img src="/smartthings.png" alt="SmartThings" className="h-6 w-6 object-contain" />
           </span>
           <div>
             <p className="text-[11px] tracking-[-0.11px] uppercase text-text-dim">Even Hub Companion</p>
@@ -230,16 +205,15 @@ function InfoRows({
   return (
     <SettingsGroup label={label}>
       {rows.map((row) => (
-        <ListItem
-          key={row.title}
-          title={row.title}
-          subtitle={row.subtitle}
-          leading={
-            <span className={`flex h-8 w-8 items-center justify-center rounded-[6px] ${iconChipClassName(row.icon)}`}>
-              <IconForKey icon={row.icon} />
-            </span>
-          }
-        />
+        <div key={row.title} className="legacy-info-row">
+          <span className={`legacy-info-row__icon ${iconChipClassName(row.icon)}`}>
+            <IconForKey icon={row.icon} />
+          </span>
+          <div className="legacy-info-row__content">
+            <p className="legacy-info-row__title">{row.title}</p>
+            <p className="legacy-info-row__subtitle">{row.subtitle}</p>
+          </div>
+        </div>
       ))}
     </SettingsGroup>
   );
@@ -525,32 +499,27 @@ function ConnectionTab(): ReactElement {
 
       <SectionHeader title="Companion Access" />
       <InfoRows label="Operational Notes" rows={CONNECTION_ROWS} />
-    </>
-  );
-}
 
-function RuntimeConsoleCard(): ReactElement {
-  return (
-    <>
-      <SectionHeader title="Runtime Console" />
+      <SectionHeader title="Debug" />
       <SurfaceCard>
-        <p className="text-[13px] tracking-[-0.13px] text-text-dim">
-          Use this phone-side console to capture bridge and glasses startup logs, then copy them back here for debugging.
+        <p className="text-[15px] tracking-[-0.15px] text-text">
+          Keep the runtime console off during normal use. Turn it on only when you need to capture phone-side logs for troubleshooting.
         </p>
         <div className="btn-group mt-4">
           <Button id="toggle-debug-btn" type="button" variant="secondary">
-            Hide console
-          </Button>
-          <Button id="copy-debug-log-btn" type="button" variant="secondary">
-            Copy log
-          </Button>
-          <Button id="clear-debug-log-btn" type="button" variant="secondary">
-            Clear log
+            Enable debug console
           </Button>
         </div>
-        <div id="debug-log-container" className="debug-box mt-4">
-          <div className="debug-title">Phone debug console</div>
-          <pre id="debug-log" />
+        <div id="debug-log-container" className="debug-console-panel mt-4" style={{ display: 'none' }}>
+          <div className="btn-group">
+            <Button id="copy-debug-log-btn" type="button" variant="secondary" size="sm">
+              Copy log
+            </Button>
+            <Button id="clear-debug-log-btn" type="button" variant="secondary" size="sm">
+              Clear log
+            </Button>
+          </div>
+          <pre id="debug-log" className="debug-console-output" aria-live="polite" />
         </div>
       </SurfaceCard>
     </>
@@ -561,7 +530,7 @@ export function ConfigShell(): ReactElement {
   const [activeTab, setActiveTab] = useState<CompanionTab>('overview');
 
   return (
-    <AppShell className="bg-bg" header={<HeaderBar />}>
+    <AppShell className="bg-bg" header={<div />}>
       <Page className="mx-auto w-full max-w-[760px] px-3 pb-12 pt-4">
         <section id="open-in-even" className="pb-6">
           <SurfaceCard>
@@ -628,8 +597,6 @@ export function ConfigShell(): ReactElement {
           <div hidden={activeTab !== 'connection'}>
             <ConnectionTab />
           </div>
-
-          <RuntimeConsoleCard />
         </section>
 
         <div id="config-toast" className="toast" role="status" aria-live="polite" style={{ display: 'none' }} />

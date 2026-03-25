@@ -785,7 +785,7 @@ export async function initApp(): Promise<void> {
     if (!debugLogContainer) return;
     debugLogContainer.style.display = visible ? 'block' : 'none';
     if (toggleDebugBtn) {
-      toggleDebugBtn.textContent = visible ? 'Hide debug log' : 'Show debug log';
+      toggleDebugBtn.textContent = visible ? 'Disable debug console' : 'Enable debug console';
     }
   }
 
@@ -890,7 +890,7 @@ export async function initApp(): Promise<void> {
       if (debugLog) debugLog.textContent = '';
     };
   }
-  setDebugVisible(true);
+  setDebugVisible(false);
 
   try {
     await hub.init();
