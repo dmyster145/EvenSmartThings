@@ -175,26 +175,6 @@ function IntroCard(): ReactElement {
   );
 }
 
-function CompanionBanner(): ReactElement {
-  return (
-    <Card
-      padding="default"
-      className={`mb-4 bg-surface shadow-[0_8px_24px_rgba(0,0,0,0.06)] ${borderClassName()}`}
-    >
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <span className="inline-flex h-7 items-center rounded-[6px] bg-accent-warning px-2 text-[13px] tracking-[-0.13px] text-text">
-          Glasses-first setup
-        </span>
-        <span className="text-[11px] tracking-[-0.11px] text-text-dim">Even 2025 UIUX</span>
-      </div>
-      <h2 className="text-[17px] tracking-[-0.17px] font-normal text-text">Card-first, low-friction configuration</h2>
-      <p className="mt-1 text-[13px] tracking-[-0.13px] text-text-dim">
-        Use launch defaults, favorites, and predictable ordering to reduce taps before you ever reach the glasses interface.
-      </p>
-    </Card>
-  );
-}
-
 function InfoRows({
   label,
   rows,
@@ -583,7 +563,6 @@ export function ConfigShell(): ReactElement {
 
         <section id="glasses-active" style={{ display: 'none' }}>
           <IntroCard />
-          <CompanionBanner />
           <CompanionTabBar activeTab={activeTab} onNavigate={setActiveTab} />
 
           <div hidden={activeTab !== 'overview'}>

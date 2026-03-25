@@ -11,7 +11,13 @@ export function reduce(state: AppState, action: Action): AppState {
       return { ...state, focusedListIndex: action.selectedIndex };
 
     case 'LIST_PAGE':
-      return { ...state, listPageIndex: action.pageIndex };
+      return {
+        ...state,
+        listPageIndex: action.pageIndex,
+        // Paginated lists reserve row 0 for Back/Previous, so reset focus to
+        // the first actionable item when switching pages.
+        focusedListIndex: 1,
+      };
 
     case 'NAV_VIEW':
       return {
