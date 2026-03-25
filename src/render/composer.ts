@@ -51,6 +51,10 @@ const LABEL_NEXT = 'Next →';
 const CONTAINER_ID_STATS = 3;
 /** SDK: container name max 16 chars; glasses may reject longer names. */
 const CONTAINER_NAME_STATS = 'st-statuses';
+const CONTAINER_ID_BOOT_EVENT = 90;
+const CONTAINER_NAME_BOOT_EVENT = 'boot-evt';
+const CONTAINER_ID_BOOT_TEXT = 91;
+const CONTAINER_NAME_BOOT_TEXT = 'boot-text';
 const STATS_NAME_MAX_LEN = 28;
 /** Max length for a stat value (after the label); longer values are not displayed. Device name is excluded. */
 const MAX_STAT_VALUE_LENGTH = 12;
@@ -430,16 +434,12 @@ function listItemNamesForState(state: AppState): string[] {
 }
 
 export function composeStartupPage(state: AppState): CreateStartUpPageContainer {
-  // Keep startup creation as small as possible; once it succeeds, rebuildPageContainer
-  // can upgrade into the full list + stats + image layout.
-  const listObjects = buildListContainers(state);
-  const textObjects: TextContainerProperty[] = [];
-  const imageObjects: ImageContainerProperty[] = [];
+  // G2 firmware accepts a conservative text bootstrap more reliably than a list startup.
+  // Once startup succeeds, rebuildPageContainer upgrades into the interactive layout.
+  const textObjects = buildStartupTextContainers(state);
   return new CreateStartUpPageContainer({
-    containerTotalNum: listObjects.length + textObjects.length + imageObjects.length,
-    listObject: listObjects,
+    containerTotalNum: textObjects.length,
     textObject: textObjects,
-    imageObject: imageObjects,
   });
 }
 
@@ -452,6 +452,22 @@ export function composePageForState(state: AppState, focusIndex?: number): Rebui
     listObject: listObjects,
     textObject: textObjects,
     imageObject: imageObjects,
+  });
+}
+
+export function composeListOnlyPage(state: AppState, focusIndex?: number): RebuildPageContainer {
+  const listObjects = buildListContainers(state, focusIndex);
+  return new RebuildPageContainer({
+    containerTotalNum: listObjects.length,
+    listObject: listObjects,
+  });
+}
+
+export function composeTextFallbackPage(message: string): RebuildPageContainer {
+  const textObjects = buildFullScreenTextContainers(message);
+  return new RebuildPageContainer({
+    containerTotalNum: textObjects.length,
+    textObject: textObjects,
   });
 }
 
@@ -562,6 +578,42 @@ function buildListContainers(state: AppState, focusIndex?: number): ListContaine
     (list as unknown as Record<string, unknown>).currentSelectItemIndex = focusIndex;
   }
   return [list];
+}
+
+function buildStartupTextContainers(state: AppState): TextContainerProperty[] {
+  const mainItems = getMainMenuOrderedItems(state).map((item) => MAIN_MENU_LABELS[item]);
+  const visibleText = ['SmartThings Controls', '', ...mainItems].join('\n');
+  return buildFullScreenTextContainers(visibleText);
+}
+
+function buildFullScreenTextContainers(content: string): TextContainerProperty[] {
+  const capture = new TextContainerProperty({
+    xPosition: 0,
+    yPosition: 0,
+    width: DISPLAY_WIDTH,
+    height: DISPLAY_HEIGHT,
+    borderWidth: 0,
+    borderColor: 0,
+    paddingLength: 0,
+    containerID: CONTAINER_ID_BOOT_EVENT,
+    containerName: CONTAINER_NAME_BOOT_EVENT,
+    content: ' ',
+    isEventCapture: 1,
+  });
+  const screen = new TextContainerProperty({
+    xPosition: 0,
+    yPosition: 0,
+    width: DISPLAY_WIDTH,
+    height: DISPLAY_HEIGHT,
+    borderWidth: 0,
+    borderColor: 0,
+    paddingLength: 0,
+    containerID: CONTAINER_ID_BOOT_TEXT,
+    containerName: CONTAINER_NAME_BOOT_TEXT,
+    content,
+    isEventCapture: 0,
+  });
+  return [capture, screen];
 }
 
 /** Omit currentSelectItemIndex from rebuild payloads; host may reject unknown fields and return false. */

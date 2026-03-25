@@ -19,6 +19,8 @@ import { mapEvenHubEvent } from './input/actions';
 import {
   composeStartupPage,
   composePageForState,
+  composeListOnlyPage,
+  composeTextFallbackPage,
   getTotalPages,
   getFirstPageContentSlots,
   getLastListIndex,
@@ -704,6 +706,7 @@ function normalizeDevices(devices: Device[]): DeviceEntry[] {
 
 type ShowConfirmationFn = (result: ConfirmationResult) => Promise<void>;
 type WithSmartThingsClient = <T>(operation: (client: SmartThingsClient) => Promise<T>) => Promise<T>;
+type GlassesLayoutMode = 'none' | 'rich' | 'list' | 'text';
 
 function confirmationResultFromCounts(successCount: number, total: number): ConfirmationResult {
   if (total === 0 || successCount === 0) return 'failure';
@@ -902,6 +905,7 @@ export async function initApp(): Promise<void> {
   let useRawImages = false;
   let useRealGlasses = false;
   let roomsLoadPromise: Promise<void> | null = null;
+  let glassesLayoutMode: GlassesLayoutMode = 'none';
 
   const startupPage = composeStartupPage(store.getState());
   appendDebugLog(
@@ -944,19 +948,6 @@ export async function initApp(): Promise<void> {
     // Icon preloading is optional; fallback icons are generated at render time.
     appendDebugLog('Device info lookup failed; continuing with default image settings.');
   }
-
-  const blankConfirmation = getBlankImageData(CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT, useRawImages);
-  const pushInitialImages = (): Promise<void> =>
-    hub.updateBoardImage(
-      new ImageRawDataUpdate({
-        containerID: CONTAINER_ID_CONFIRMATION,
-        containerName: CONTAINER_NAME_CONFIRMATION,
-        imageData: blankConfirmation,
-      })
-    ).then(() => {});
-  await new Promise((r) => setTimeout(r, 200));
-  await pushInitialImages();
-  setTimeout(() => void pushInitialImages(), 800);
 
   // Real glasses report gesture timing less consistently than the simulator.
   const TAP_WINDOW_MS = useRealGlasses ? 800 : 400;
@@ -1009,16 +1000,67 @@ export async function initApp(): Promise<void> {
     }
   }
 
+  function canUseRichGlassesLayout(): boolean {
+    return glassesLayoutMode === 'rich';
+  }
+
+  function updateStatsPanel(): void {
+    if (!canUseRichGlassesLayout()) return;
+    if (!store.getState().preferences.statsVisibility.enabled) return;
+    void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
+  }
+
+  async function pushInitialImages(): Promise<void> {
+    if (!canUseRichGlassesLayout()) return;
+    const blankConfirmation = getBlankImageData(CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT, useRawImages);
+    await hub.updateBoardImage(
+      new ImageRawDataUpdate({
+        containerID: CONTAINER_ID_CONFIRMATION,
+        containerName: CONTAINER_NAME_CONFIRMATION,
+        imageData: blankConfirmation,
+      })
+    );
+  }
+
   /** Rebuild and send the current page, preserving the list focus so it doesn't jump to top. */
   async function rebuildFullPage(reason: string): Promise<boolean> {
     const state = store.getState();
     const lastListIndex = getLastListIndex(state);
     const focusIndex = Math.min(state.focusedListIndex, lastListIndex);
-    const success = await hub.updatePage(composePageForState(state, focusIndex));
-    if (!success) {
-      appendDebugLog(`Glasses page rebuild failed (${reason}).`, true);
+    const richSuccess = await hub.updatePage(composePageForState(state, focusIndex));
+    if (richSuccess) {
+      if (glassesLayoutMode !== 'rich') {
+        appendDebugLog(`Glasses page rebuild succeeded with rich layout (${reason}).`);
+      }
+      glassesLayoutMode = 'rich';
+      return true;
     }
-    return success;
+
+    appendDebugLog(`Rich glasses rebuild failed (${reason}). Trying list-only fallback.`, true);
+    const listSuccess = await hub.updatePage(composeListOnlyPage(state, focusIndex));
+    if (listSuccess) {
+      if (glassesLayoutMode !== 'list') {
+        appendDebugLog('Recovered with list-only glasses layout.');
+      }
+      glassesLayoutMode = 'list';
+      return true;
+    }
+
+    appendDebugLog(`List-only glasses rebuild failed (${reason}). Trying text fallback.`, true);
+    const textFallback = await hub.updatePage(
+      composeTextFallbackPage('SmartThings connected\n\nGlasses UI fallback active\n\nOpen the phone runtime console for details.')
+    );
+    if (textFallback) {
+      if (glassesLayoutMode !== 'text') {
+        appendDebugLog('Recovered with text-only glasses fallback layout.');
+      }
+      glassesLayoutMode = 'text';
+      return true;
+    }
+
+    glassesLayoutMode = 'none';
+    appendDebugLog(`Text fallback rebuild failed (${reason}).`, true);
+    return false;
   }
 
   refreshPage = (): void => {
@@ -1026,12 +1068,21 @@ export async function initApp(): Promise<void> {
   };
 
   if (startupResult.success) {
-    void rebuildFullPage('post-startup full layout');
+    const rebuilt = await rebuildFullPage('post-startup full layout');
+    if (!rebuilt) {
+      authUI.setConnectionStatus('Connected, but the glasses UI failed to initialize. Open the runtime console on your phone.');
+    }
   } else {
     const rebuilt = await rebuildFullPage('startup fallback');
     if (!rebuilt) {
-      authUI.setConnectionStatus('Connected, but the glasses UI failed to initialize. Open Connection > debug log.');
+      authUI.setConnectionStatus('Connected, but the glasses UI failed to initialize. Open the runtime console on your phone.');
     }
+  }
+
+  if (canUseRichGlassesLayout()) {
+    await new Promise((r) => setTimeout(r, 200));
+    await pushInitialImages();
+    setTimeout(() => void pushInitialImages(), 800);
   }
 
   async function loadGlobalStats(): Promise<void> {
@@ -1066,18 +1117,14 @@ export async function initApp(): Promise<void> {
       // Leave global stats unset if fetching fails.
     }
     // Update only the stats panel so list selection doesn't jump to top
-    if (store.getState().preferences.statsVisibility.enabled) {
-      void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
-    }
+    updateStatsPanel();
   }
 
   async function loadRoomStats(): Promise<void> {
     const devices = store.getState().devices;
     if (devices.length === 0) {
       store.dispatch({ type: 'STATS_ROOM', stats: null });
-      if (store.getState().preferences.statsVisibility.enabled) {
-        void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
-      }
+      updateStatsPanel();
       return;
     }
     try {
@@ -1100,9 +1147,7 @@ export async function initApp(): Promise<void> {
       await handleTerminalAuthFailure(err);
       store.dispatch({ type: 'STATS_ROOM', stats: null });
     }
-    if (store.getState().preferences.statsVisibility.enabled) {
-      void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
-    }
+    updateStatsPanel();
   }
 
   type DeviceStatusShape = {
@@ -1308,9 +1353,7 @@ export async function initApp(): Promise<void> {
       await handleTerminalAuthFailure(err);
       store.dispatch({ type: 'STATS_DEVICE', stats: null });
     }
-    if (store.getState().preferences.statsVisibility.enabled) {
-      void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
-    }
+    updateStatsPanel();
   }
 
   const CONFIRM_DISMISS_MS = 5000;
@@ -1319,6 +1362,7 @@ export async function initApp(): Promise<void> {
   let confirmationShowing: ConfirmationResult | null = null;
 
   const showConfirmation: ShowConfirmationFn = async (result: ConfirmationResult): Promise<void> => {
+    if (!canUseRichGlassesLayout()) return;
     if (confirmationDismissTimeoutId !== null) {
       clearTimeout(confirmationDismissTimeoutId);
       confirmationDismissTimeoutId = null;
@@ -1409,9 +1453,7 @@ export async function initApp(): Promise<void> {
             ? { ...current, brightness: level }
             : { onlineStatus: 'Unknown', switchStatus: '-', brightness: level },
         });
-        if (store.getState().preferences.statsVisibility.enabled) {
-          void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
-        }
+        updateStatsPanel();
         // Skip immediate refetch because SmartThings can return stale brightness right after setLevel.
       }
     } catch (err) {
