@@ -64,6 +64,7 @@ import {
   executeSceneViaServer,
   getSessionStatus,
   getSmartThingsAccessToken,
+  SMARTTHINGS_DEBUG_EVENT,
   startSmartThingsConnect,
   type SmartThingsBatchRelayResult,
   type SessionStatus,
@@ -731,6 +732,9 @@ async function runExecuteScene(
   const scene = getSceneByIndex(state, selectedIndex);
   if (!scene || state.status === 'executing') return;
 
+  console.log(
+    `[SmartThingsControls] Scene command requested. sceneId=${scene.sceneId} visibility=${typeof document !== 'undefined' ? document.visibilityState : 'unknown'}`
+  );
   store.dispatch({ type: 'EXECUTE_START' });
   try {
     const result = await executeSceneViaServer(scene.sceneId);
@@ -750,9 +754,11 @@ async function runExecuteScene(
       await showConfirmation('failure');
     }
 
+    console.log(`[SmartThingsControls] Scene command result. sceneId=${scene.sceneId} status=${status ?? 'unknown'} success=${success}`);
     store.dispatch({ type: 'EXECUTE_END', success, errorMessage: success ? undefined : (status ?? 'unknown') });
   } catch (err) {
     const message = getErrorMessage(err);
+    console.warn(`[SmartThingsControls] Scene command failed. sceneId=${scene.sceneId} error=${message}`);
     store.dispatch({ type: 'EXECUTE_END', success: false, errorMessage: message });
     await showConfirmation('failure');
   }
@@ -783,13 +789,29 @@ export async function initApp(): Promise<void> {
     }
   }
 
-  function appendDebugLog(message: string, reveal = false): void {
+  function pushDebugLine(message: string): void {
     const line = `[${new Date().toLocaleTimeString('en-US', { hour12: false })}] ${message}`;
     debugLines.push(line);
     if (debugLines.length > 120) debugLines.shift();
     if (debugLog) debugLog.textContent = debugLines.join('\n');
+  }
+
+  function appendDebugLog(message: string, reveal = false): void {
+    pushDebugLine(message);
     console.log(`[SmartThingsControls] ${message}`);
     if (reveal) setDebugVisible(true);
+  }
+
+  const relayDebugHandler = (event: Event): void => {
+    const customEvent = event as CustomEvent<{ message?: string; reveal?: boolean }>;
+    const message = customEvent.detail?.message;
+    if (typeof message !== 'string' || !message) return;
+    pushDebugLine(message);
+    if (customEvent.detail?.reveal) setDebugVisible(true);
+  };
+
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener(SMARTTHINGS_DEBUG_EVENT, relayDebugHandler as EventListener);
   }
 
   async function requestWakeLock(reason: string): Promise<void> {
@@ -1544,11 +1566,16 @@ export async function initApp(): Promise<void> {
 
   async function runDeviceSwitch(deviceId: string, on: boolean): Promise<void> {
     try {
+      appendDebugLog(
+        `Device switch requested. deviceId=${deviceId} command=${on ? 'on' : 'off'} visibility=${typeof document !== 'undefined' ? document.visibilityState : 'unknown'}`
+      );
       const response = await executeDeviceCommandViaServer(deviceId, 'switch', on ? 'on' : 'off');
       const success = await isDeviceCommandSuccess(deviceId, response);
+      appendDebugLog(`Device switch result. deviceId=${deviceId} success=${success}`);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
     } catch (err) {
+      appendDebugLog(`Device switch failed. deviceId=${deviceId} error=${getErrorMessage(err)}`, true);
       await handleTerminalAuthFailure(err);
       await showConfirmation('failure');
     }
@@ -1556,8 +1583,12 @@ export async function initApp(): Promise<void> {
 
   async function runDeviceSetLevel(deviceId: string, level: number): Promise<void> {
     try {
+      appendDebugLog(
+        `Device level requested. deviceId=${deviceId} level=${level} visibility=${typeof document !== 'undefined' ? document.visibilityState : 'unknown'}`
+      );
       const response = await executeDeviceCommandViaServer(deviceId, 'switchLevel', 'setLevel', [level]);
       const success = await isDeviceCommandSuccess(deviceId, response);
+      appendDebugLog(`Device level result. deviceId=${deviceId} level=${level} success=${success}`);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) {
         const state = store.getState();
@@ -1572,6 +1603,7 @@ export async function initApp(): Promise<void> {
         // Skip immediate refetch because SmartThings can return stale brightness right after setLevel.
       }
     } catch (err) {
+      appendDebugLog(`Device level failed. deviceId=${deviceId} level=${level} error=${getErrorMessage(err)}`, true);
       await handleTerminalAuthFailure(err);
       await showConfirmation('failure');
     }
@@ -1583,6 +1615,9 @@ export async function initApp(): Promise<void> {
       await showConfirmation('failure');
       return;
     }
+    appendDebugLog(
+      `Batch switch requested. count=${devices.length} command=${on ? 'on' : 'off'} visibility=${typeof document !== 'undefined' ? document.visibilityState : 'unknown'}`
+    );
     let results: SmartThingsBatchRelayResult[] = [];
     try {
       const response = await executeBatchDeviceCommandsViaServer(
@@ -1597,6 +1632,7 @@ export async function initApp(): Promise<void> {
       if (await handleTerminalAuthFailure(err)) return;
     }
     const successCount = results.filter((entry) => entry.ok).length;
+    appendDebugLog(`Batch switch result. success=${successCount}/${devices.length}`);
     await showConfirmation(confirmationResultFromCounts(successCount, devices.length));
   }
 
@@ -1606,6 +1642,9 @@ export async function initApp(): Promise<void> {
       await showConfirmation('failure');
       return;
     }
+    appendDebugLog(
+      `Batch level requested. count=${devices.length} level=${level} visibility=${typeof document !== 'undefined' ? document.visibilityState : 'unknown'}`
+    );
     let results: SmartThingsBatchRelayResult[] = [];
     try {
       const response = await executeBatchDeviceCommandsViaServer(
@@ -1621,6 +1660,7 @@ export async function initApp(): Promise<void> {
       if (await handleTerminalAuthFailure(err)) return;
     }
     const successCount = results.filter((entry) => entry.ok).length;
+    appendDebugLog(`Batch level result. success=${successCount}/${devices.length} level=${level}`);
     await showConfirmation(confirmationResultFromCounts(successCount, devices.length));
   }
 
@@ -2371,6 +2411,7 @@ export async function initApp(): Promise<void> {
     window.addEventListener('focus', focusHandler);
     window.addEventListener('online', onlineHandler);
     window.addEventListener('beforeunload', () => {
+      window.removeEventListener(SMARTTHINGS_DEBUG_EVENT, relayDebugHandler as EventListener);
       void releaseWakeLock('beforeunload');
       if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
         document.removeEventListener('visibilitychange', visibilityHandler);
