@@ -2117,7 +2117,7 @@ export async function initApp(): Promise<void> {
     })();
   });
 
-  hub.subscribeEvents((event) => {
+  function handleHubEvent(event: EvenHubEvent): void {
     if (canUseTextGlassesLayout()) {
       handleTextModeEvent(event);
       return;
@@ -2156,8 +2156,156 @@ export async function initApp(): Promise<void> {
         commitTimeoutId = null;
       }
     }
-  });
+  }
 
-  appendDebugLog('EvenHub event subscription ready.');
+  function attachHubEventSubscription(reason: string): void {
+    hub.subscribeEvents(handleHubEvent);
+    if (reason === 'startup') {
+      appendDebugLog('EvenHub event subscription ready.');
+      return;
+    }
+    appendDebugLog(`EvenHub event subscription refreshed (${reason}).`);
+  }
+
+  const RESUME_SYNC_DEBOUNCE_MS = 1500;
+  let resumeSyncPromise: Promise<void> | null = null;
+  let lastResumeSyncAt = 0;
+
+  async function syncGlassesAfterResume(reason: string): Promise<boolean> {
+    if (!hub.hasBridge()) return false;
+
+    if (useRealGlasses) {
+      glassesLayoutMode = 'text';
+      const textSynced = await updateTextModePage(`${reason} text refresh`);
+      if (textSynced) {
+        await pushInitialImages();
+        return true;
+      }
+    } else {
+      const rebuilt = await rebuildFullPage(`${reason} rebuild`);
+      if (rebuilt) {
+        if (canUseConfirmationImage()) {
+          await pushInitialImages();
+        }
+        return true;
+      }
+    }
+
+    const startupPage = composeStartupPage(store.getState());
+    appendDebugLog(
+      `Recreating glasses startup page (${reason}). containers=${startupPage.containerTotalNum ?? 0}`
+    );
+    const startupResult = await hub.setupPage(startupPage);
+    appendDebugLog(
+      `Resume startup page result: ${describeStartUpPageResult(startupResult.code)}`
+        + (startupResult.success ? '' : ' (resume sync may still be incomplete)'),
+      !startupResult.success
+    );
+    if (!startupResult.success) {
+      return false;
+    }
+
+    if (useRealGlasses) {
+      glassesLayoutMode = 'text';
+      const textSynced = await updateTextModePage(`${reason} post-startup text refresh`);
+      if (textSynced) {
+        await pushInitialImages();
+      }
+      return textSynced;
+    }
+
+    const rebuilt = await rebuildFullPage(`${reason} post-startup rebuild`);
+    if (rebuilt && canUseConfirmationImage()) {
+      await pushInitialImages();
+    }
+    return rebuilt;
+  }
+
+  async function resumeBridgeSession(reason: string): Promise<void> {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      return;
+    }
+    const now = Date.now();
+    if (resumeSyncPromise) {
+      return resumeSyncPromise;
+    }
+    if (now - lastResumeSyncAt < RESUME_SYNC_DEBOUNCE_MS) {
+      return;
+    }
+    lastResumeSyncAt = now;
+
+    const task = (async () => {
+      appendDebugLog(`Resume sync triggered (${reason}).`);
+      await hub.init(3000);
+      appendDebugLog(`Resume bridge refresh complete (${reason}). bridge=${hub.hasBridge()}`);
+      if (!hub.hasBridge()) {
+        appendDebugLog(`Resume bridge refresh failed (${reason}).`, true);
+        return;
+      }
+
+      attachHubEventSubscription(`resume:${reason}`);
+
+      try {
+        const sessionStatus = await getSessionStatus();
+        appendDebugLog(
+          `Resume session status (${reason}). authenticated=${sessionStatus.authenticated} configured=${sessionStatus.configured}`
+        );
+        if (!sessionStatus.authenticated) {
+          authUI.showConnectPanel(
+            sessionStatus.configured ? AUTH_DISCONNECTED_MESSAGE : AUTH_CONFIG_MISSING_MESSAGE,
+            sessionStatus.configured
+          );
+          return;
+        }
+        authUI.showConnectedState(sessionStatus);
+      } catch (err) {
+        appendDebugLog(`Resume session status failed (${reason}): ${getErrorMessage(err)}`, true);
+      }
+
+      const synced = await syncGlassesAfterResume(reason);
+      appendDebugLog(
+        synced ? `Glasses sync complete (${reason}).` : `Glasses sync failed (${reason}).`,
+        !synced
+      );
+    })().finally(() => {
+      resumeSyncPromise = null;
+    });
+
+    resumeSyncPromise = task;
+    return task;
+  }
+
+  const visibilityHandler = () => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    void resumeBridgeSession('visibilitychange');
+  };
+  const pageshowHandler = () => {
+    void resumeBridgeSession('pageshow');
+  };
+  const focusHandler = () => {
+    void resumeBridgeSession('focus');
+  };
+  const onlineHandler = () => {
+    void resumeBridgeSession('online');
+  };
+
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', visibilityHandler);
+  }
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('pageshow', pageshowHandler);
+    window.addEventListener('focus', focusHandler);
+    window.addEventListener('online', onlineHandler);
+    window.addEventListener('beforeunload', () => {
+      if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+        document.removeEventListener('visibilitychange', visibilityHandler);
+      }
+      window.removeEventListener('pageshow', pageshowHandler);
+      window.removeEventListener('focus', focusHandler);
+      window.removeEventListener('online', onlineHandler);
+    });
+  }
+
+  attachHubEventSubscription('startup');
   console.log('[SmartThingsControls] Initialized.');
 }

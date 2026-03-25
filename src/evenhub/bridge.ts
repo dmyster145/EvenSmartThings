@@ -36,6 +36,8 @@ export class EvenHubBridge {
   /** @param timeoutMs If the bridge is not ready after this many ms, treat as no bridge (e.g. in a normal browser). Use a longer default so the Even App WebView has time to inject the bridge. */
   async init(timeoutMs: number = 10000): Promise<void> {
     try {
+      this.unsubscribeLaunchSource?.();
+      this.unsubscribeLaunchSource = null;
       const bridgePromise = waitForEvenAppBridge();
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Bridge timeout')), timeoutMs)

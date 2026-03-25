@@ -71,7 +71,7 @@ const AUTH_EXPIRED_STATS_TITLE = 'SmartThings Auth';
 const AUTH_EXPIRED_STATS_DETAIL = 'Reconnect in app';
 const CONFIRMATION_MARGIN = 8;
 const TEXT_MODE_STATS_HEIGHT = DISPLAY_HEIGHT - CONFIRMATION_HEIGHT - CONFIRMATION_MARGIN;
-const TEXT_MODE_LIST_TOTAL_LINES = 12;
+const TEXT_MODE_LIST_TOTAL_LINES = 11;
 const TEXT_MODE_LIST_MIN_VISIBLE_ROWS = 4;
 
 function truncateName(name: string, fallback = 'Scene'): string {
