@@ -909,6 +909,8 @@ export async function initApp(): Promise<void> {
   let useRealGlasses = false;
   let roomsLoadPromise: Promise<void> | null = null;
   let glassesLayoutMode: GlassesLayoutMode = 'none';
+  let textModeConfirmation: string | null = null;
+  let textModeConfirmationTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   const startupPage = composeStartupPage(store.getState());
   appendDebugLog(
@@ -1011,11 +1013,37 @@ export async function initApp(): Promise<void> {
     return glassesLayoutMode === 'text';
   }
 
+  function getTextModePageContent(): string {
+    const state = store.getState();
+    const statsContent = getStatsContent(state);
+    return composeTextModeContent(state, {
+      statsContent: statsContent.trim() ? statsContent : undefined,
+      confirmation: textModeConfirmation,
+    });
+  }
+
+  function setTextModeConfirmation(message: string | null): void {
+    textModeConfirmation = message;
+    if (textModeConfirmationTimeoutId !== null) {
+      clearTimeout(textModeConfirmationTimeoutId);
+      textModeConfirmationTimeoutId = null;
+    }
+    if (message) {
+      textModeConfirmationTimeoutId = setTimeout(() => {
+        textModeConfirmationTimeoutId = null;
+        textModeConfirmation = null;
+        if (canUseTextGlassesLayout()) {
+          void updateTextModePage('confirmation clear');
+        }
+      }, CONFIRM_DISMISS_MS);
+    }
+  }
+
   async function updateTextModePage(reason: string): Promise<boolean> {
     const success = await hub.updateText(
       CONTAINER_ID_BOOT_TEXT,
       CONTAINER_NAME_BOOT_TEXT,
-      composeTextModeContent(store.getState())
+      getTextModePageContent()
     );
     if (!success) {
       appendDebugLog(`Text-mode page update failed (${reason}).`, true);
@@ -1025,6 +1053,10 @@ export async function initApp(): Promise<void> {
   }
 
   function updateStatsPanel(): void {
+    if (canUseTextGlassesLayout()) {
+      void updateTextModePage('stats update');
+      return;
+    }
     if (!canUseRichGlassesLayout()) return;
     if (!store.getState().preferences.statsVisibility.enabled) return;
     void hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getStatsContent(store.getState()));
@@ -1393,6 +1425,11 @@ export async function initApp(): Promise<void> {
   let confirmationShowing: ConfirmationResult | null = null;
 
   const showConfirmation: ShowConfirmationFn = async (result: ConfirmationResult): Promise<void> => {
+    if (canUseTextGlassesLayout()) {
+      setTextModeConfirmation(result === 'success' ? 'Success' : result === 'partial' ? 'Partial' : 'Failed');
+      await updateTextModePage('confirmation');
+      return;
+    }
     if (!canUseRichGlassesLayout()) return;
     if (confirmationDismissTimeoutId !== null) {
       clearTimeout(confirmationDismissTimeoutId);

@@ -471,7 +471,10 @@ export function composeTextFallbackPage(message: string): RebuildPageContainer {
   });
 }
 
-export function composeTextModeContent(state: AppState): string {
+export function composeTextModeContent(
+  state: AppState,
+  options?: { statsContent?: string; confirmation?: string | null }
+): string {
   const itemNames = listItemNamesForState(state);
   const focusIndex = Math.min(Math.max(state.focusedListIndex, 0), Math.max(itemNames.length - 1, 0));
   const title = textModeTitle(state);
@@ -490,6 +493,17 @@ export function composeTextModeContent(state: AppState): string {
   } else if (state.errorMessage && itemNames.length < 16) {
     lines.push('');
     lines.push(truncateStatsName(state.errorMessage, 'Error'));
+  }
+  const confirmation = options?.confirmation?.trim();
+  if (confirmation) {
+    lines.push('');
+    lines.push(`Result: ${confirmation}`);
+  }
+  const statsContent = options?.statsContent?.trim();
+  if (statsContent) {
+    lines.push('');
+    lines.push('Statuses');
+    lines.push(...statsContent.split('\n'));
   }
   return lines.join('\n');
 }
