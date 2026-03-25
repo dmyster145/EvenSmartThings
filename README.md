@@ -1,6 +1,6 @@
 # SmartThings Controls
 
-**Control SmartThings from your Even Realities G2 glasses.** Browse scenes, rooms, and devices in a list, then tap to run or control. Configure your SmartThings connection, glasses-menu default view, list order, favorites, custom names, and stats visibility in the Even App config panel.
+**Control SmartThings from your Even Realities G2 glasses.** Browse scenes, rooms, and devices in a list, then tap to run or control. Configure your SmartThings connection, app-launch default view, list order, favorites, custom names, and stats visibility in the Even App config panel.
 
 This project is licensed under the MIT License — see [LICENSE](LICENSE).
 
@@ -18,7 +18,7 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 |------------------------|------------------|
 | [![Motion sensor](screenshots/devices-motion-sensor.png)](screenshots/devices-motion-sensor.png) | [![Dimming](screenshots/devices-dimming.png)](screenshots/devices-dimming.png) |
 
-*Config panel:* SmartThings connection, glasses-menu default view, list order, stats visibility (including **All** toggle), favorites, custom names, and documentation. *On the glasses:* main menu (Scenes, Devices, and Favorites when favorites exist), scene list with SmartThings statuses, favorites list, rooms, device lists, device detail (e.g. motion sensor with battery/temperature), and dimming control.
+*Config panel:* SmartThings connection, app-launch default view, list order, stats visibility (including **All** toggle), favorites, custom names, and documentation. *On the glasses:* main menu (Scenes, Devices, and Favorites when favorites exist), scene list with SmartThings statuses, favorites list, rooms, device lists, device detail (e.g. motion sensor with battery/temperature), and dimming control.
 
 ---
 
@@ -28,8 +28,8 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 - **Devices** — Browse by room; tap to turn on/off or adjust dim level.
 - **Favorites** — One list mixing scenes and devices; you choose what’s in it and the order.
 - **Rooms** — Navigate by room, then control devices or run room actions.
-- **Launch defaults** — Choose what opens first from the glasses menu: resume the last useful screen, jump into Scenes, open Devices, or go straight to Favorites.
-- **Config panel** — Connect SmartThings, set the glasses-menu default view, set list order (alphabetical, reverse, or custom), choose which stats show on the glasses, manage favorites, and set custom display names in the Even App.
+- **Launch defaults** — Choose what opens first whenever the app launches: resume the last useful screen, open the main screen, jump into Scenes, open Devices, or go straight to Favorites.
+- **Config panel** — Connect SmartThings, set the app-launch default view, set list order (alphabetical, reverse, or custom), choose which stats show on the glasses, manage favorites, and set custom display names in the Even App.
 - **Gesture navigation** — Single tap to select, double tap to go back, triple tap to jump to the last page.
 - **G2-native UI** — List on the left, confirmation and stats on the right; scroll and tap drive everything.
 

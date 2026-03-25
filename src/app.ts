@@ -26,6 +26,8 @@ import {
   getTotalPages,
   getFirstPageContentSlots,
   getLastListIndex,
+  getSelectableListIndexes,
+  getNormalizedFocusedListIndex,
   getStatsContent,
   CONTAINER_ID_STATS,
   CONTAINER_NAME_STATS,
@@ -86,7 +88,7 @@ import {
   type LaunchResumeState,
 } from './state/launch-resume-storage';
 import { getStoredPreferences, setStoredPreferences } from './state/preferences-storage';
-import { ImageRawDataUpdate, LAUNCH_SOURCE_GLASSES_MENU, OsEventTypeList, StartUpPageCreateResult, type EvenHubEvent } from '@evenrealities/even_hub_sdk';
+import { ImageRawDataUpdate, OsEventTypeList, StartUpPageCreateResult, type EvenHubEvent } from '@evenrealities/even_hub_sdk';
 
 const CONFIG_PANEL_ID = 'config';
 const AUTH_RECONNECT_MESSAGE = 'SmartThings session expired or is unauthorized. Reconnect to continue.';
@@ -1777,9 +1779,11 @@ export async function initApp(): Promise<void> {
     }
   }
 
-  function getConfiguredGlassesMenuLaunchView(): 'scenes' | 'rooms' | 'favorites' {
+  function getConfiguredGlassesMenuLaunchView(): 'main' | 'scenes' | 'rooms' | 'favorites' {
     const state = store.getState();
     switch (state.preferences.glassesMenuDefault) {
+      case 'main':
+        return 'main';
       case 'devices':
         return 'rooms';
       case 'favorites':
@@ -2109,10 +2113,14 @@ export async function initApp(): Promise<void> {
 
   function moveTextModeFocus(delta: number): void {
     const state = store.getState();
-    const maxIndex = getLastListIndex(state);
-    if (maxIndex <= 0 && state.focusedListIndex === 0) return;
-    const nextIndex = Math.max(0, Math.min(state.focusedListIndex + delta, maxIndex));
-    if (nextIndex === state.focusedListIndex) return;
+    const selectableIndexes = getSelectableListIndexes(state);
+    if (selectableIndexes.length === 0) return;
+
+    const currentIndex = getNormalizedFocusedListIndex(state);
+    const currentPosition = Math.max(0, selectableIndexes.indexOf(currentIndex));
+    const nextPosition = Math.max(0, Math.min(currentPosition + delta, selectableIndexes.length - 1));
+    const nextIndex = selectableIndexes[nextPosition] ?? currentIndex;
+    if (nextIndex === currentIndex && nextIndex === state.focusedListIndex) return;
     store.dispatch({ type: 'TAP', selectedIndex: nextIndex });
     refreshPage();
   }
@@ -2123,7 +2131,7 @@ export async function initApp(): Promise<void> {
       commitTimeoutId = null;
     }
     const state = store.getState();
-    lastTapIndex = Math.min(state.focusedListIndex, getLastListIndex(state));
+    lastTapIndex = Math.min(getNormalizedFocusedListIndex(state), getLastListIndex(state));
     tapCount = gestureTaps;
     lastTapTime = Date.now();
     commitTap();
@@ -2174,42 +2182,31 @@ export async function initApp(): Promise<void> {
     persistLaunchResume(state);
   });
 
-  let launchSourceResolved = false;
-  let launchSourceTimeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-    if (launchSourceResolved) return;
-    launchSourceResolved = true;
-    void storedLaunchResumePromise.then((storedLaunchResume) => {
+  let initialLaunchPreferenceApplied = false;
+
+  async function applyInitialLaunchPreference(): Promise<void> {
+    if (initialLaunchPreferenceApplied) return;
+    initialLaunchPreferenceApplied = true;
+
+    const storedLaunchResume = await storedLaunchResumePromise;
+    try {
+      await preferencesLoadPromise;
+      if (store.getState().preferences.glassesMenuDefault === 'resume') {
+        const restored = await restoreLaunchResume(storedLaunchResume);
+        if (!restored) openConfiguredGlassesMenuView();
+      } else {
+        openConfiguredGlassesMenuView();
+      }
+    } finally {
       enableLaunchResumePersistence(storedLaunchResume);
-    });
-  }, 1500);
+      persistLaunchResume(store.getState());
+    }
+  }
+
+  void applyInitialLaunchPreference();
 
   hub.subscribeLaunchSource((source) => {
     appendDebugLog(`Launch source received: ${source}`);
-    if (launchSourceResolved) return;
-    launchSourceResolved = true;
-    if (launchSourceTimeoutId !== null) {
-      clearTimeout(launchSourceTimeoutId);
-      launchSourceTimeoutId = null;
-    }
-    void (async () => {
-      const storedLaunchResume = await storedLaunchResumePromise;
-      try {
-        if (source === LAUNCH_SOURCE_GLASSES_MENU) {
-          await preferencesLoadPromise;
-          if (store.getState().preferences.glassesMenuDefault === 'resume') {
-            const restored = await restoreLaunchResume(storedLaunchResume);
-            if (!restored) openConfiguredGlassesMenuView();
-          } else {
-            openConfiguredGlassesMenuView();
-          }
-        }
-      } finally {
-        enableLaunchResumePersistence(storedLaunchResume);
-        if (source === LAUNCH_SOURCE_GLASSES_MENU) {
-          persistLaunchResume(store.getState());
-        }
-      }
-    })();
   });
 
   function handleHubEvent(event: EvenHubEvent): void {

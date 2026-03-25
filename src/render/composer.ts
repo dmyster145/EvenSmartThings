@@ -439,6 +439,34 @@ function listItemNamesForState(state: AppState): string[] {
   return deviceNamesForListView(state);
 }
 
+function selectableListIndexesForItemNames(itemNames: string[]): number[] {
+  return itemNames.reduce<number[]>((indexes, itemName, index) => {
+    if (itemName.trim().length > 0) indexes.push(index);
+    return indexes;
+  }, []);
+}
+
+export function getSelectableListIndexes(state: AppState): number[] {
+  return selectableListIndexesForItemNames(listItemNamesForState(state));
+}
+
+export function getNormalizedFocusedListIndex(state: AppState): number {
+  const itemNames = listItemNamesForState(state);
+  const selectableIndexes = selectableListIndexesForItemNames(itemNames);
+  if (selectableIndexes.length === 0) return 0;
+
+  const desiredIndex = Math.min(Math.max(state.focusedListIndex, 0), Math.max(itemNames.length - 1, 0));
+  if (selectableIndexes.includes(desiredIndex)) return desiredIndex;
+
+  for (let index = selectableIndexes.length - 1; index >= 0; index -= 1) {
+    const selectableIndex = selectableIndexes[index];
+    if (selectableIndex !== undefined && selectableIndex < desiredIndex) return selectableIndex;
+  }
+
+  const firstSelectableIndex = selectableIndexes[0];
+  return firstSelectableIndex ?? 0;
+}
+
 export function composeStartupPage(state: AppState): CreateStartUpPageContainer {
   const textObjects = buildStartupTextContainers(state);
   const imageObjects = buildImageContainers();
@@ -479,7 +507,7 @@ export function composeTextFallbackPage(message: string): RebuildPageContainer {
 
 export function composeTextModeListContent(state: AppState): string {
   const itemNames = listItemNamesForState(state);
-  const focusIndex = Math.min(Math.max(state.focusedListIndex, 0), Math.max(itemNames.length - 1, 0));
+  const focusIndex = getNormalizedFocusedListIndex(state);
   const title = textModeTitle(state);
   const maxVisibleRows = Math.max(TEXT_MODE_LIST_MIN_VISIBLE_ROWS, TEXT_MODE_LIST_TOTAL_LINES - 1);
   const visibleRows = Math.min(itemNames.length, maxVisibleRows);
@@ -508,8 +536,9 @@ export function composeTextModeStatsContent(state: AppState): string {
 
 /** Last item index on the current page (for scroll-to-bottom). */
 export function getLastListIndex(state: AppState): number {
-  const itemNames = listItemNamesForState(state);
-  return Math.max(0, itemNames.length - 1);
+  const selectableIndexes = getSelectableListIndexes(state);
+  const lastSelectableIndex = selectableIndexes[selectableIndexes.length - 1];
+  return lastSelectableIndex ?? 0;
 }
 
 /** Total pages for current listView (for pagination in app). */

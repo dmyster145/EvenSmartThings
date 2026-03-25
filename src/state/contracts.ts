@@ -58,8 +58,8 @@ export type ListView =
 /** List order preference per list type. */
 export type ListOrderPreference = 'alphabetical' | 'reverse' | 'custom';
 
-/** What should open first when launched from the glasses menu. */
-export type GlassesMenuDefault = 'resume' | 'scenes' | 'devices' | 'favorites';
+/** What should open first when the app launches. */
+export type GlassesMenuDefault = 'resume' | 'main' | 'scenes' | 'devices' | 'favorites';
 
 /** Home screen menu items (order determines main menu). */
 export type MainMenuItem = 'scenes' | 'devices' | 'favorites';

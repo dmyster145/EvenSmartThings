@@ -46,6 +46,7 @@ const LIST_ORDER_OPTIONS = [
 
 const GLASSES_MENU_OPTIONS = [
   { value: 'resume', label: 'Resume last screen' },
+  { value: 'main', label: 'Main screen' },
   { value: 'scenes', label: 'Scenes' },
   { value: 'devices', label: 'Devices' },
   { value: 'favorites', label: 'Favorites' },
@@ -87,8 +88,8 @@ const OPEN_IN_EVEN_ROWS: InfoRow[] = [
 
 const OVERVIEW_ROWS: InfoRow[] = [
   {
-    title: 'Launch from glasses menu for speed',
-    subtitle: 'Use glasses-menu launches to jump straight into the view you need most often.',
+    title: 'Launch into the right view faster',
+    subtitle: 'Use a startup default to jump straight into the screen you need most often.',
     icon: 'home',
   },
   {
@@ -299,14 +300,14 @@ function OverviewTab(): ReactElement {
       <SectionHeader title="Launch Behavior" className="mt-0" />
       <SurfaceCard className="mb-3">
         <p className="text-[15px] tracking-[-0.15px] text-text">
-          Glasses-menu launches should feel instant. Set a fixed destination or resume your last useful screen so repeat actions take fewer gestures.
+          App launches should feel instant. Set a fixed destination or resume your last useful screen so repeat actions take fewer gestures.
         </p>
         <p className="mt-1 text-[13px] tracking-[-0.13px] text-text-dim">
-          This preference only affects launches from the glasses menu. App-menu launches can still keep the broader setup flow.
+          This preference is honored whenever the app opens, whether you launch it from a QR code, the phone companion, or the glasses.
         </p>
       </SurfaceCard>
 
-      <SettingsGroup label="Glasses Menu">
+      <SettingsGroup label="App Launch">
         <SettingsRow label="Default view" htmlFor="glasses-menu-default">
           <Select id="glasses-menu-default" defaultValue="resume" options={GLASSES_MENU_OPTIONS} />
         </SettingsRow>

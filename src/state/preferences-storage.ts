@@ -23,7 +23,7 @@ function migrate(parsed: unknown): Preferences {
   };
   if (typeof p.glassesMenuDefault === 'string') {
     const glassesMenuDefault = p.glassesMenuDefault as GlassesMenuDefault;
-    if (['resume', 'scenes', 'devices', 'favorites'].includes(glassesMenuDefault)) {
+    if (['resume', 'main', 'scenes', 'devices', 'favorites'].includes(glassesMenuDefault)) {
       prefs.glassesMenuDefault = glassesMenuDefault;
     }
   }
