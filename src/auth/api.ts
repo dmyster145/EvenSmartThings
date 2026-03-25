@@ -20,6 +20,7 @@ export type AccessTokenResponse = {
 };
 
 export type SmartThingsRelayResponse = {
+  requestId?: string;
   status?: string;
   results?: Array<{ status?: string }>;
 };
@@ -30,6 +31,11 @@ export type SmartThingsBatchRelayResult = {
   status?: string;
   results?: Array<{ status?: string }>;
   error?: string;
+};
+
+export type SmartThingsBatchRelayResponse = {
+  requestId?: string;
+  results: SmartThingsBatchRelayResult[];
 };
 
 export const SMARTTHINGS_DEBUG_EVENT = 'smartthings-controls:debug';
@@ -79,6 +85,30 @@ function summarizeRelayPayload(body: Record<string, unknown>): string {
   return `kind=${kind}`;
 }
 
+function makeRelayRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `relay-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function createRelayEnvelope(
+  body: Record<string, unknown>,
+  transport: 'fetch' | 'beacon'
+): { requestId: string; body: Record<string, unknown> } {
+  const requestId = makeRelayRequestId();
+  return {
+    requestId,
+    body: {
+      ...body,
+      requestId,
+      clientTransport: transport,
+      clientVisibility: getVisibilityState(),
+      clientIssuedAt: new Date().toISOString(),
+    },
+  };
+}
+
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -119,8 +149,11 @@ export async function disconnectSmartThings(): Promise<void> {
 }
 
 async function executeSmartThingsRelayRequest<T>(body: Record<string, unknown>): Promise<T> {
-  const summary = summarizeRelayPayload(body);
-  emitSmartThingsDebug(`Relay fetch dispatch: ${summary} visibility=${getVisibilityState()}`);
+  const envelope = createRelayEnvelope(body, 'fetch');
+  const summary = summarizeRelayPayload(envelope.body);
+  emitSmartThingsDebug(
+    `Relay fetch dispatch: requestId=${envelope.requestId} ${summary} visibility=${getVisibilityState()}`
+  );
   const response = await fetch('/api/smartthings/execute', {
     method: 'POST',
     credentials: 'include',
@@ -130,11 +163,11 @@ async function executeSmartThingsRelayRequest<T>(body: Record<string, unknown>):
     },
     cache: 'no-store',
     keepalive: true,
-    body: JSON.stringify(body),
+    body: JSON.stringify(envelope.body),
   });
   const payload = await response.json().catch(() => ({}));
   emitSmartThingsDebug(
-    `Relay fetch response: ${summary} status=${response.status} ok=${response.ok}`
+    `Relay fetch response: requestId=${typeof (payload as { requestId?: unknown }).requestId === 'string' ? String((payload as { requestId: string }).requestId) : envelope.requestId} ${summary} status=${response.status} ok=${response.ok}`
       + (response.ok ? '' : ` error=${typeof (payload as { error?: unknown }).error === 'string' ? String((payload as { error: string }).error) : 'unknown'}`),
     !response.ok
   );
@@ -156,11 +189,12 @@ function shouldUseBackgroundBeacon(): boolean {
 
 function sendSmartThingsBeacon(body: Record<string, unknown>): boolean {
   if (!shouldUseBackgroundBeacon()) return false;
-  const summary = summarizeRelayPayload(body);
-  const payload = new Blob([JSON.stringify(body)], { type: 'application/json' });
+  const envelope = createRelayEnvelope(body, 'beacon');
+  const summary = summarizeRelayPayload(envelope.body);
+  const payload = new Blob([JSON.stringify(envelope.body)], { type: 'application/json' });
   const accepted = navigator.sendBeacon('/api/smartthings/execute', payload);
   emitSmartThingsDebug(
-    `Relay beacon ${accepted ? 'accepted' : 'rejected'}: ${summary} visibility=${getVisibilityState()}`,
+    `Relay beacon ${accepted ? 'accepted' : 'rejected'}: requestId=${envelope.requestId} ${summary} visibility=${getVisibilityState()}`,
     !accepted
   );
   return accepted;
@@ -204,7 +238,7 @@ export async function executeDeviceCommandViaServer(
 
 export async function executeBatchDeviceCommandsViaServer(
   commands: DeviceCommandPayload[]
-): Promise<{ results: SmartThingsBatchRelayResult[] }> {
+): Promise<SmartThingsBatchRelayResponse> {
   if (sendSmartThingsBeacon({ kind: 'batch-device', commands })) {
     return {
       results: commands.map((entry) => ({
@@ -215,7 +249,7 @@ export async function executeBatchDeviceCommandsViaServer(
       })),
     };
   }
-  return executeSmartThingsRelayRequest<{ results: SmartThingsBatchRelayResult[] }>({
+  return executeSmartThingsRelayRequest<SmartThingsBatchRelayResponse>({
     kind: 'batch-device',
     commands,
   });

@@ -2,6 +2,7 @@ import { URL } from 'node:url';
 import {
   clearSessionCookie,
   json,
+  makeOpaqueId,
   methodNotAllowed,
   parseCookies,
   readJsonBody,
@@ -201,6 +202,36 @@ function didSmartThingsCommandSucceed(payload) {
   return true;
 }
 
+function getRelayRequestContext(body) {
+  const requestId =
+    typeof body?.requestId === 'string' && body.requestId.trim()
+      ? body.requestId.trim()
+      : makeOpaqueId();
+  const kind = typeof body?.kind === 'string' ? body.kind : 'unknown';
+  const clientTransport = typeof body?.clientTransport === 'string' ? body.clientTransport : 'unknown';
+  const clientVisibility = typeof body?.clientVisibility === 'string' ? body.clientVisibility : 'unknown';
+  const clientIssuedAt = typeof body?.clientIssuedAt === 'string' ? body.clientIssuedAt : '';
+  const issuedAtMs = Date.parse(clientIssuedAt);
+  const lagMs = Number.isFinite(issuedAtMs) ? Date.now() - issuedAtMs : null;
+  return {
+    requestId,
+    kind,
+    clientTransport,
+    clientVisibility,
+    clientIssuedAt,
+    lagMs,
+  };
+}
+
+function relayContextLine(context, extra = '') {
+  const lagPart = context.lagMs == null ? 'lagMs=unknown' : `lagMs=${context.lagMs}`;
+  return `requestId=${context.requestId} kind=${context.kind} transport=${context.clientTransport} visibility=${context.clientVisibility} ${lagPart}${extra ? ` ${extra}` : ''}`;
+}
+
+function logRelay(event, context, extra = '') {
+  console.log(`[smartthings-controls-relay] ${event} ${relayContextLine(context, extra)}`);
+}
+
 export async function handleHealthRequest(request, response) {
   try {
     if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);
@@ -294,23 +325,30 @@ export async function handleSmartThingsExecuteRequest(request, response) {
     refreshSessionCookie(response, request, session);
 
     const body = await readJsonBody(request);
+    const relayContext = getRelayRequestContext(body);
+    logRelay('received', relayContext);
     const kind = body?.kind;
 
     if (kind === 'scene') {
       const sceneId = typeof body?.sceneId === 'string' ? body.sceneId.trim() : '';
       if (!sceneId) {
-        return json(response, 400, { error: 'sceneId is required' });
+        logRelay('invalid', relayContext, 'reason=missing-sceneId');
+        return json(response, 400, { requestId: relayContext.requestId, error: 'sceneId is required' });
       }
+      logRelay('dispatch', relayContext, `sceneId=${sceneId}`);
       const result = await smartThingsApiRequest(session, `/scenes/${encodeURIComponent(sceneId)}/execute`, {
         method: 'POST',
       });
       if (!result.ok) {
+        logRelay('response', relayContext, `status=${result.status} ok=false`);
         return json(response, result.status, {
+          requestId: relayContext.requestId,
           error: smartThingsErrorMessage(result.payload, result.status),
           response: result.payload,
         });
       }
-      return json(response, 200, result.payload);
+      logRelay('response', relayContext, `status=${result.status} ok=true`);
+      return json(response, 200, { requestId: relayContext.requestId, ...result.payload });
     }
 
     if (kind === 'device') {
@@ -319,8 +357,10 @@ export async function handleSmartThingsExecuteRequest(request, response) {
       const command = typeof body?.command === 'string' ? body.command.trim() : '';
       const args = Array.isArray(body?.arguments) ? body.arguments : [];
       if (!deviceId || !capability || !command) {
-        return json(response, 400, { error: 'deviceId, capability, and command are required' });
+        logRelay('invalid', relayContext, 'reason=missing-device-command-fields');
+        return json(response, 400, { requestId: relayContext.requestId, error: 'deviceId, capability, and command are required' });
       }
+      logRelay('dispatch', relayContext, `deviceId=${deviceId} capability=${capability} command=${command}`);
       const result = await smartThingsApiRequest(
         session,
         `/devices/${encodeURIComponent(deviceId)}/commands`,
@@ -339,19 +379,24 @@ export async function handleSmartThingsExecuteRequest(request, response) {
         }
       );
       if (!result.ok) {
+        logRelay('response', relayContext, `status=${result.status} ok=false`);
         return json(response, result.status, {
+          requestId: relayContext.requestId,
           error: smartThingsErrorMessage(result.payload, result.status),
           response: result.payload,
         });
       }
-      return json(response, 200, result.payload);
+      logRelay('response', relayContext, `status=${result.status} ok=true`);
+      return json(response, 200, { requestId: relayContext.requestId, ...result.payload });
     }
 
     if (kind === 'batch-device') {
       const commands = Array.isArray(body?.commands) ? body.commands : [];
       if (commands.length === 0) {
-        return json(response, 400, { error: 'commands is required' });
+        logRelay('invalid', relayContext, 'reason=missing-batch-commands');
+        return json(response, 400, { requestId: relayContext.requestId, error: 'commands is required' });
       }
+      logRelay('dispatch', relayContext, `count=${commands.length}`);
 
       const results = await Promise.all(
         commands.map(async (entry) => {
@@ -399,10 +444,12 @@ export async function handleSmartThingsExecuteRequest(request, response) {
         })
       );
 
-      return json(response, 200, { results });
+      logRelay('response', relayContext, `status=200 ok=true count=${results.length}`);
+      return json(response, 200, { requestId: relayContext.requestId, results });
     }
 
-    return json(response, 400, { error: 'Unsupported command kind' });
+    logRelay('invalid', relayContext, 'reason=unsupported-kind');
+    return json(response, 400, { requestId: relayContext.requestId, error: 'Unsupported command kind' });
   } catch (err) {
     return sendServerError(response, err);
   }
