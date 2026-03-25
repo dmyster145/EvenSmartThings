@@ -1411,8 +1411,11 @@ export async function initApp(): Promise<void> {
 
   const CONFIRM_DISMISS_MS = 5000;
   const CONFIRM_FLASH_MS = 150;
+  const TEXT_MODE_SCROLL_COOLDOWN_MS = 90;
   let confirmationDismissTimeoutId: ReturnType<typeof setTimeout> | null = null;
   let confirmationShowing: ConfirmationResult | null = null;
+  let lastTextModeScrollAt = 0;
+  let lastTextModeScrollDirection: -1 | 0 | 1 = 0;
 
   const showConfirmation: ShowConfirmationFn = async (result: ConfirmationResult): Promise<void> => {
     if (!canUseConfirmationImage()) return;
@@ -2031,6 +2034,17 @@ export async function initApp(): Promise<void> {
     commitTap();
   }
 
+  function shouldProcessTextModeScroll(direction: -1 | 1): boolean {
+    const now = Date.now();
+    const withinCooldown = now - lastTextModeScrollAt < TEXT_MODE_SCROLL_COOLDOWN_MS;
+    if (withinCooldown && lastTextModeScrollDirection === direction) {
+      return false;
+    }
+    lastTextModeScrollAt = now;
+    lastTextModeScrollDirection = direction;
+    return true;
+  }
+
   function handleTextModeEvent(event: EvenHubEvent): boolean {
     const rawType =
       event.listEvent?.eventType ??
@@ -2040,10 +2054,12 @@ export async function initApp(): Promise<void> {
     const eventType = rawType != null ? OsEventTypeList.fromJson(rawType) ?? Number(rawType) : null;
 
     if (eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
+      if (!shouldProcessTextModeScroll(-1)) return true;
       moveTextModeFocus(-1);
       return true;
     }
     if (eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
+      if (!shouldProcessTextModeScroll(1)) return true;
       moveTextModeFocus(1);
       return true;
     }

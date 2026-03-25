@@ -71,6 +71,8 @@ const AUTH_EXPIRED_STATS_TITLE = 'SmartThings Auth';
 const AUTH_EXPIRED_STATS_DETAIL = 'Reconnect in app';
 const CONFIRMATION_MARGIN = 8;
 const TEXT_MODE_STATS_HEIGHT = DISPLAY_HEIGHT - CONFIRMATION_HEIGHT - CONFIRMATION_MARGIN;
+const TEXT_MODE_LIST_TOTAL_LINES = 12;
+const TEXT_MODE_LIST_MIN_VISIBLE_ROWS = 4;
 
 function truncateName(name: string, fallback = 'Scene'): string {
   const n = name || fallback;
@@ -479,22 +481,36 @@ export function composeTextModeListContent(state: AppState): string {
   const itemNames = listItemNamesForState(state);
   const focusIndex = Math.min(Math.max(state.focusedListIndex, 0), Math.max(itemNames.length - 1, 0));
   const title = textModeTitle(state);
+  const footerLines: string[] = [];
+  if (state.status === 'executing') {
+    footerLines.push('', 'Working...');
+  } else if (state.authStatus === 'expired') {
+    footerLines.push('', 'Reconnect in app');
+  } else if (state.errorMessage && itemNames.length < 16) {
+    footerLines.push('', truncateStatsName(state.errorMessage, 'Error'));
+  }
+
+  const maxVisibleRows = Math.max(
+    TEXT_MODE_LIST_MIN_VISIBLE_ROWS,
+    TEXT_MODE_LIST_TOTAL_LINES - 1 - footerLines.length
+  );
+  const visibleRows = Math.min(itemNames.length, maxVisibleRows);
+  const startIndex = Math.max(
+    0,
+    Math.min(
+      focusIndex - Math.floor(visibleRows / 2),
+      Math.max(0, itemNames.length - visibleRows)
+    )
+  );
+  const endIndex = startIndex + visibleRows;
+
   const lines = [title];
-  for (let index = 0; index < itemNames.length; index += 1) {
+  for (let index = startIndex; index < endIndex; index += 1) {
     const itemName = itemNames[index] ?? '';
     const name = itemName.trim().length > 0 ? itemName : ' ';
     lines.push(`${index === focusIndex ? '>' : ' '} ${name}`);
   }
-  if (state.status === 'executing') {
-    lines.push('');
-    lines.push('Working...');
-  } else if (state.authStatus === 'expired') {
-    lines.push('');
-    lines.push('Reconnect in app');
-  } else if (state.errorMessage && itemNames.length < 16) {
-    lines.push('');
-    lines.push(truncateStatsName(state.errorMessage, 'Error'));
-  }
+  lines.push(...footerLines);
   return lines.join('\n');
 }
 
