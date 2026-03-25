@@ -21,15 +21,16 @@ import {
   composePageForState,
   composeListOnlyPage,
   composeTextFallbackPage,
-  composeTextModeContent,
+  composeTextModeListContent,
+  composeTextModeStatsContent,
   getTotalPages,
   getFirstPageContentSlots,
   getLastListIndex,
   getStatsContent,
   CONTAINER_ID_STATS,
   CONTAINER_NAME_STATS,
-  CONTAINER_ID_BOOT_TEXT,
-  CONTAINER_NAME_BOOT_TEXT,
+  CONTAINER_ID_BOOT_LIST,
+  CONTAINER_NAME_BOOT_LIST,
 } from './render/composer';
 import {
   loadIconCache,
@@ -909,8 +910,6 @@ export async function initApp(): Promise<void> {
   let useRealGlasses = false;
   let roomsLoadPromise: Promise<void> | null = null;
   let glassesLayoutMode: GlassesLayoutMode = 'none';
-  let textModeConfirmation: string | null = null;
-  let textModeConfirmationTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   const startupPage = composeStartupPage(store.getState());
   appendDebugLog(
@@ -1013,39 +1012,30 @@ export async function initApp(): Promise<void> {
     return glassesLayoutMode === 'text';
   }
 
-  function getTextModePageContent(): string {
-    const state = store.getState();
-    const statsContent = getStatsContent(state);
-    return composeTextModeContent(state, {
-      statsContent: statsContent.trim() ? statsContent : undefined,
-      confirmation: textModeConfirmation,
-    });
+  function canUseConfirmationImage(): boolean {
+    return canUseRichGlassesLayout() || canUseTextGlassesLayout();
   }
 
-  function setTextModeConfirmation(message: string | null): void {
-    textModeConfirmation = message;
-    if (textModeConfirmationTimeoutId !== null) {
-      clearTimeout(textModeConfirmationTimeoutId);
-      textModeConfirmationTimeoutId = null;
-    }
-    if (message) {
-      textModeConfirmationTimeoutId = setTimeout(() => {
-        textModeConfirmationTimeoutId = null;
-        textModeConfirmation = null;
-        if (canUseTextGlassesLayout()) {
-          void updateTextModePage('confirmation clear');
-        }
-      }, CONFIRM_DISMISS_MS);
-    }
+  function getTextModeListContent(): string {
+    return composeTextModeListContent(store.getState());
+  }
+
+  function getTextModeStatsContent(): string {
+    return composeTextModeStatsContent(store.getState());
   }
 
   async function updateTextModePage(reason: string): Promise<boolean> {
-    const success = await hub.updateText(
-      CONTAINER_ID_BOOT_TEXT,
-      CONTAINER_NAME_BOOT_TEXT,
-      getTextModePageContent()
+    const listOk = await hub.updateText(
+      CONTAINER_ID_BOOT_LIST,
+      CONTAINER_NAME_BOOT_LIST,
+      getTextModeListContent()
     );
-    if (!success) {
+    const statsOk = await hub.updateText(
+      CONTAINER_ID_STATS,
+      CONTAINER_NAME_STATS,
+      getTextModeStatsContent()
+    );
+    if (!listOk || !statsOk) {
       appendDebugLog(`Text-mode page update failed (${reason}).`, true);
       return false;
     }
@@ -1063,7 +1053,7 @@ export async function initApp(): Promise<void> {
   }
 
   async function pushInitialImages(): Promise<void> {
-    if (!canUseRichGlassesLayout()) return;
+    if (!canUseConfirmationImage()) return;
     const blankConfirmation = getBlankImageData(CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT, useRawImages);
     await hub.updateBoardImage(
       new ImageRawDataUpdate({
@@ -1142,7 +1132,7 @@ export async function initApp(): Promise<void> {
     }
   }
 
-  if (canUseRichGlassesLayout()) {
+  if (canUseConfirmationImage()) {
     await new Promise((r) => setTimeout(r, 200));
     await pushInitialImages();
     setTimeout(() => void pushInitialImages(), 800);
@@ -1425,12 +1415,7 @@ export async function initApp(): Promise<void> {
   let confirmationShowing: ConfirmationResult | null = null;
 
   const showConfirmation: ShowConfirmationFn = async (result: ConfirmationResult): Promise<void> => {
-    if (canUseTextGlassesLayout()) {
-      setTextModeConfirmation(result === 'success' ? 'Success' : result === 'partial' ? 'Partial' : 'Failed');
-      await updateTextModePage('confirmation');
-      return;
-    }
-    if (!canUseRichGlassesLayout()) return;
+    if (!canUseConfirmationImage()) return;
     if (confirmationDismissTimeoutId !== null) {
       clearTimeout(confirmationDismissTimeoutId);
       confirmationDismissTimeoutId = null;

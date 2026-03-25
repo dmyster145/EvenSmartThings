@@ -53,7 +53,9 @@ const CONTAINER_ID_STATS = 3;
 const CONTAINER_NAME_STATS = 'st-statuses';
 const CONTAINER_ID_BOOT_EVENT = 90;
 const CONTAINER_NAME_BOOT_EVENT = 'boot-evt';
-const CONTAINER_ID_BOOT_TEXT = 91;
+const CONTAINER_ID_BOOT_LIST = 91;
+const CONTAINER_NAME_BOOT_LIST = 'boot-list';
+const CONTAINER_ID_BOOT_TEXT = 92;
 const CONTAINER_NAME_BOOT_TEXT = 'boot-text';
 const STATS_NAME_MAX_LEN = 28;
 /** Max length for a stat value (after the label); longer values are not displayed. Device name is excluded. */
@@ -67,6 +69,8 @@ const STATS_BOX_WIDTH = DISPLAY_WIDTH - LIST_WIDTH - STATS_LEFT_GAP - STATS_RIGH
 const AUTH_EXPIRED_LIST_LABEL = 'Reconnect in app';
 const AUTH_EXPIRED_STATS_TITLE = 'SmartThings Auth';
 const AUTH_EXPIRED_STATS_DETAIL = 'Reconnect in app';
+const CONFIRMATION_MARGIN = 8;
+const TEXT_MODE_STATS_HEIGHT = DISPLAY_HEIGHT - CONFIRMATION_HEIGHT - CONFIRMATION_MARGIN;
 
 function truncateName(name: string, fallback = 'Scene'): string {
   const n = name || fallback;
@@ -434,12 +438,12 @@ function listItemNamesForState(state: AppState): string[] {
 }
 
 export function composeStartupPage(state: AppState): CreateStartUpPageContainer {
-  // G2 firmware accepts a conservative text bootstrap more reliably than a list startup.
-  // Once startup succeeds, rebuildPageContainer upgrades into the interactive layout.
   const textObjects = buildStartupTextContainers(state);
+  const imageObjects = buildImageContainers();
   return new CreateStartUpPageContainer({
-    containerTotalNum: textObjects.length,
+    containerTotalNum: textObjects.length + imageObjects.length,
     textObject: textObjects,
+    imageObject: imageObjects,
   });
 }
 
@@ -471,10 +475,7 @@ export function composeTextFallbackPage(message: string): RebuildPageContainer {
   });
 }
 
-export function composeTextModeContent(
-  state: AppState,
-  options?: { statsContent?: string; confirmation?: string | null }
-): string {
+export function composeTextModeListContent(state: AppState): string {
   const itemNames = listItemNamesForState(state);
   const focusIndex = Math.min(Math.max(state.focusedListIndex, 0), Math.max(itemNames.length - 1, 0));
   const title = textModeTitle(state);
@@ -494,18 +495,12 @@ export function composeTextModeContent(
     lines.push('');
     lines.push(truncateStatsName(state.errorMessage, 'Error'));
   }
-  const confirmation = options?.confirmation?.trim();
-  if (confirmation) {
-    lines.push('');
-    lines.push(`Result: ${confirmation}`);
-  }
-  const statsContent = options?.statsContent?.trim();
-  if (statsContent) {
-    lines.push('');
-    lines.push('Statuses');
-    lines.push(...statsContent.split('\n'));
-  }
   return lines.join('\n');
+}
+
+export function composeTextModeStatsContent(state: AppState): string {
+  const statsContent = getStatsContent(state).trim();
+  return statsContent.length > 0 ? statsContent : ' ';
 }
 
 /** Last item index on the current page (for scroll-to-bottom). */
@@ -618,9 +613,46 @@ function buildListContainers(state: AppState, focusIndex?: number): ListContaine
 }
 
 function buildStartupTextContainers(state: AppState): TextContainerProperty[] {
-  const mainItems = getMainMenuOrderedItems(state).map((item) => MAIN_MENU_LABELS[item]);
-  const visibleText = ['SmartThings Controls', '', ...mainItems].join('\n');
-  return buildFullScreenTextContainers(visibleText);
+  const capture = new TextContainerProperty({
+    xPosition: 0,
+    yPosition: 0,
+    width: DISPLAY_WIDTH,
+    height: DISPLAY_HEIGHT,
+    borderWidth: 0,
+    borderColor: 0,
+    paddingLength: 0,
+    containerID: CONTAINER_ID_BOOT_EVENT,
+    containerName: CONTAINER_NAME_BOOT_EVENT,
+    content: ' ',
+    isEventCapture: 1,
+  });
+  const list = new TextContainerProperty({
+    xPosition: 0,
+    yPosition: 0,
+    width: LIST_WIDTH,
+    height: DISPLAY_HEIGHT,
+    borderWidth: 0,
+    borderColor: 0,
+    paddingLength: 0,
+    containerID: CONTAINER_ID_BOOT_LIST,
+    containerName: CONTAINER_NAME_BOOT_LIST,
+    content: composeTextModeListContent(state),
+    isEventCapture: 0,
+  });
+  const stats = new TextContainerProperty({
+    xPosition: LIST_WIDTH + STATS_LEFT_GAP,
+    yPosition: STATS_TOP_OFFSET,
+    width: STATS_BOX_WIDTH,
+    height: TEXT_MODE_STATS_HEIGHT,
+    borderWidth: 0,
+    borderColor: 0,
+    paddingLength: 0,
+    containerID: CONTAINER_ID_STATS,
+    containerName: CONTAINER_NAME_STATS,
+    content: composeTextModeStatsContent(state),
+    isEventCapture: 0,
+  });
+  return [capture, list, stats];
 }
 
 function buildFullScreenTextContainers(content: string): TextContainerProperty[] {
@@ -676,8 +708,6 @@ function textModeTitle(state: AppState): string {
 /** Omit currentSelectItemIndex from rebuild payloads; host may reject unknown fields and return false. */
 const OMIT_SELECT_INDEX_ON_REBUILD = true;
 
-const CONFIRMATION_MARGIN = 8;
-
 function buildImageContainers(): ImageContainerProperty[] {
   const statusX = DISPLAY_WIDTH - CONFIRMATION_WIDTH - CONFIRMATION_MARGIN;
   const statusY = DISPLAY_HEIGHT - CONFIRMATION_HEIGHT - CONFIRMATION_MARGIN;
@@ -693,8 +723,8 @@ function buildImageContainers(): ImageContainerProperty[] {
 }
 
 export {
-  CONTAINER_ID_BOOT_TEXT,
-  CONTAINER_NAME_BOOT_TEXT,
+  CONTAINER_ID_BOOT_LIST,
+  CONTAINER_NAME_BOOT_LIST,
   CONTAINER_ID_LIST,
   CONTAINER_NAME_LIST,
   CONTAINER_ID_CONFIRMATION,
