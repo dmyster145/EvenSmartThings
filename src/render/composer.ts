@@ -471,6 +471,29 @@ export function composeTextFallbackPage(message: string): RebuildPageContainer {
   });
 }
 
+export function composeTextModeContent(state: AppState): string {
+  const itemNames = listItemNamesForState(state);
+  const focusIndex = Math.min(Math.max(state.focusedListIndex, 0), Math.max(itemNames.length - 1, 0));
+  const title = textModeTitle(state);
+  const lines = [title];
+  for (let index = 0; index < itemNames.length; index += 1) {
+    const itemName = itemNames[index] ?? '';
+    const name = itemName.trim().length > 0 ? itemName : ' ';
+    lines.push(`${index === focusIndex ? '>' : ' '} ${name}`);
+  }
+  if (state.status === 'executing') {
+    lines.push('');
+    lines.push('Working...');
+  } else if (state.authStatus === 'expired') {
+    lines.push('');
+    lines.push('Reconnect in app');
+  } else if (state.errorMessage && itemNames.length < 16) {
+    lines.push('');
+    lines.push(truncateStatsName(state.errorMessage, 'Error'));
+  }
+  return lines.join('\n');
+}
+
 /** Last item index on the current page (for scroll-to-bottom). */
 export function getLastListIndex(state: AppState): number {
   const itemNames = listItemNamesForState(state);
@@ -616,6 +639,26 @@ function buildFullScreenTextContainers(content: string): TextContainerProperty[]
   return [capture, screen];
 }
 
+function textModeTitle(state: AppState): string {
+  if (state.listView === 'main') return 'SmartThings';
+  if (state.listView === 'scenes') return 'Scenes';
+  if (state.listView === 'rooms') return 'Rooms';
+  if (state.listView === 'favorites') return 'Favorites';
+  if (state.listView === 'devices') {
+    const room = getSelectedRoom(state);
+    return room ? truncateStatsName(getDisplayName(state, 'room', room.roomId, room.roomName), 'Devices') : 'Devices';
+  }
+  if (state.listView === 'device-detail' || state.listView === 'device-dim') {
+    const device = getSelectedDevice(state);
+    return device ? truncateStatsName(getDisplayName(state, 'device', device.deviceId, device.deviceName), 'Device') : 'Device';
+  }
+  if (state.listView === 'room-all-detail' || state.listView === 'room-all-dim') {
+    const room = getSelectedRoom(state);
+    return room ? `${truncateStatsName(getDisplayName(state, 'room', room.roomId, room.roomName), 'Room')} All` : 'Room';
+  }
+  return 'SmartThings';
+}
+
 /** Omit currentSelectItemIndex from rebuild payloads; host may reject unknown fields and return false. */
 const OMIT_SELECT_INDEX_ON_REBUILD = true;
 
@@ -636,6 +679,8 @@ function buildImageContainers(): ImageContainerProperty[] {
 }
 
 export {
+  CONTAINER_ID_BOOT_TEXT,
+  CONTAINER_NAME_BOOT_TEXT,
   CONTAINER_ID_LIST,
   CONTAINER_NAME_LIST,
   CONTAINER_ID_CONFIRMATION,

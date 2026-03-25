@@ -21,12 +21,15 @@ import {
   composePageForState,
   composeListOnlyPage,
   composeTextFallbackPage,
+  composeTextModeContent,
   getTotalPages,
   getFirstPageContentSlots,
   getLastListIndex,
   getStatsContent,
   CONTAINER_ID_STATS,
   CONTAINER_NAME_STATS,
+  CONTAINER_ID_BOOT_TEXT,
+  CONTAINER_NAME_BOOT_TEXT,
 } from './render/composer';
 import {
   loadIconCache,
@@ -77,7 +80,7 @@ import {
   type LaunchResumeState,
 } from './state/launch-resume-storage';
 import { getStoredPreferences, setStoredPreferences } from './state/preferences-storage';
-import { ImageRawDataUpdate, LAUNCH_SOURCE_GLASSES_MENU, StartUpPageCreateResult } from '@evenrealities/even_hub_sdk';
+import { ImageRawDataUpdate, LAUNCH_SOURCE_GLASSES_MENU, OsEventTypeList, StartUpPageCreateResult, type EvenHubEvent } from '@evenrealities/even_hub_sdk';
 
 const CONFIG_PANEL_ID = 'config';
 const AUTH_RECONNECT_MESSAGE = 'SmartThings session expired or is unauthorized. Reconnect to continue.';
@@ -1004,6 +1007,23 @@ export async function initApp(): Promise<void> {
     return glassesLayoutMode === 'rich';
   }
 
+  function canUseTextGlassesLayout(): boolean {
+    return glassesLayoutMode === 'text';
+  }
+
+  async function updateTextModePage(reason: string): Promise<boolean> {
+    const success = await hub.updateText(
+      CONTAINER_ID_BOOT_TEXT,
+      CONTAINER_NAME_BOOT_TEXT,
+      composeTextModeContent(store.getState())
+    );
+    if (!success) {
+      appendDebugLog(`Text-mode page update failed (${reason}).`, true);
+      return false;
+    }
+    return true;
+  }
+
   function updateStatsPanel(): void {
     if (!canUseRichGlassesLayout()) return;
     if (!store.getState().preferences.statsVisibility.enabled) return;
@@ -1064,10 +1084,21 @@ export async function initApp(): Promise<void> {
   }
 
   refreshPage = (): void => {
+    if (canUseTextGlassesLayout()) {
+      void updateTextModePage('state refresh');
+      return;
+    }
     void rebuildFullPage('state refresh');
   };
 
-  if (startupResult.success) {
+  if (startupResult.success && useRealGlasses) {
+    glassesLayoutMode = 'text';
+    appendDebugLog('Using fixed text glasses layout for real-device compatibility.');
+    const textReady = await updateTextModePage('post-startup text layout');
+    if (!textReady) {
+      authUI.setConnectionStatus('Connected, but the text-mode glasses UI failed to update. Open the runtime console on your phone.');
+    }
+  } else if (startupResult.success) {
     const rebuilt = await rebuildFullPage('post-startup full layout');
     if (!rebuilt) {
       authUI.setConnectionStatus('Connected, but the glasses UI failed to initialize. Open the runtime console on your phone.');
@@ -1956,6 +1987,55 @@ export async function initApp(): Promise<void> {
     tapCount = 0;
   }
 
+  function moveTextModeFocus(delta: number): void {
+    const state = store.getState();
+    const maxIndex = getLastListIndex(state);
+    if (maxIndex <= 0 && state.focusedListIndex === 0) return;
+    const nextIndex = Math.max(0, Math.min(state.focusedListIndex + delta, maxIndex));
+    if (nextIndex === state.focusedListIndex) return;
+    store.dispatch({ type: 'TAP', selectedIndex: nextIndex });
+    refreshPage();
+  }
+
+  function triggerTextModeTap(gestureTaps: 1 | 2): void {
+    if (commitTimeoutId !== null) {
+      clearTimeout(commitTimeoutId);
+      commitTimeoutId = null;
+    }
+    const state = store.getState();
+    lastTapIndex = Math.min(state.focusedListIndex, getLastListIndex(state));
+    tapCount = gestureTaps;
+    lastTapTime = Date.now();
+    commitTap();
+  }
+
+  function handleTextModeEvent(event: EvenHubEvent): boolean {
+    const rawType =
+      event.listEvent?.eventType ??
+      event.textEvent?.eventType ??
+      event.sysEvent?.eventType ??
+      null;
+    const eventType = rawType != null ? OsEventTypeList.fromJson(rawType) ?? Number(rawType) : null;
+
+    if (eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
+      moveTextModeFocus(-1);
+      return true;
+    }
+    if (eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
+      moveTextModeFocus(1);
+      return true;
+    }
+    if (eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+      triggerTextModeTap(2);
+      return true;
+    }
+    if (eventType === OsEventTypeList.CLICK_EVENT || eventType == null) {
+      triggerTextModeTap(1);
+      return true;
+    }
+    return false;
+  }
+
   setupConfigUI(store, hub, refreshPage);
   store.subscribe((state) => {
     persistLaunchResume(state);
@@ -2000,6 +2080,10 @@ export async function initApp(): Promise<void> {
   });
 
   hub.subscribeEvents((event) => {
+    if (canUseTextGlassesLayout()) {
+      handleTextModeEvent(event);
+      return;
+    }
     const action = mapEvenHubEvent(event, store.getState());
     if (action && action.type === 'TAP') {
       const listIndex = action.selectedIndex;
