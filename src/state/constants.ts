@@ -44,3 +44,4 @@ export const STATS_BOX_HEIGHT = DISPLAY_HEIGHT;
 
 export const PAT_STORAGE_KEY = 'smartthings_pat';
 export const PREFERENCES_STORAGE_KEY = 'smartthings_preferences';
+export const LAUNCH_RESUME_STORAGE_KEY = 'smartthings_launch_resume';

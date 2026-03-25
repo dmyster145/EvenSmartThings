@@ -7,7 +7,8 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n server,vite -c blue,green \"npm run dev:server\" \"vite\"",
+    "dev:client": "vite",
     "dev:server": "node --watch server/index.js",
     "server": "node server/index.js",
     "build": "tsc -b && vite build",
@@ -15,17 +16,30 @@
     "lint": "eslint src/ server/ api/"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "^0.0.7",
+    "@evenrealities/even_hub_sdk": "^0.0.9",
     "@smartthings/core-sdk": "^4.0.0",
     "buffer": "^6.0.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "even-toolkit": "^1.1.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "redis": "^5.11.0",
+    "tailwind-merge": "^3.5.0",
     "util": "^0.12.5"
   },
   "devDependencies": {
+    "@evenrealities/evenhub-simulator": "^0.6.2",
+    "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^24.3.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@typescript-eslint/eslint-plugin": "^8.42.0",
     "@typescript-eslint/parser": "^8.42.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "concurrently": "^9.2.1",
     "eslint": "^9.34.0",
+    "tailwindcss": "^4.2.2",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.42.0",
     "vite": "^7.1.3",

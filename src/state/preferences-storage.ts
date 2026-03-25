@@ -2,7 +2,7 @@
  * Preferences persistence: load/save and migrate from bridge or localStorage.
  */
 
-import type { Preferences, MainMenuItem } from './contracts';
+import type { Preferences, MainMenuItem, GlassesMenuDefault } from './contracts';
 import { DEFAULT_PREFERENCES, PREFERENCES_SCHEMA_VERSION } from './contracts';
 import { PREFERENCES_STORAGE_KEY } from './constants';
 import type { EvenHubBridge } from '../evenhub/bridge';
@@ -11,6 +11,7 @@ function migrate(parsed: unknown): Preferences {
   if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_PREFERENCES };
   const p = parsed as Record<string, unknown>;
   const prefs: Preferences = {
+    glassesMenuDefault: DEFAULT_PREFERENCES.glassesMenuDefault,
     listOrder: { ...DEFAULT_PREFERENCES.listOrder },
     listOrderCustomIds: { ...DEFAULT_PREFERENCES.listOrderCustomIds },
     favoritesIds: Array.isArray(p.favoritesIds) ? (p.favoritesIds as Preferences['favoritesIds']) : [],
@@ -20,6 +21,12 @@ function migrate(parsed: unknown): Preferences {
       : {},
     schemaVersion: PREFERENCES_SCHEMA_VERSION,
   };
+  if (typeof p.glassesMenuDefault === 'string') {
+    const glassesMenuDefault = p.glassesMenuDefault as GlassesMenuDefault;
+    if (['resume', 'scenes', 'devices', 'favorites'].includes(glassesMenuDefault)) {
+      prefs.glassesMenuDefault = glassesMenuDefault;
+    }
+  }
   if (p.listOrder && typeof p.listOrder === 'object') {
     const lo = p.listOrder as Record<string, string>;
     if (typeof lo.scenes === 'string') prefs.listOrder.scenes = lo.scenes as Preferences['listOrder']['scenes'];

@@ -58,6 +58,9 @@ export type ListView =
 /** List order preference per list type. */
 export type ListOrderPreference = 'alphabetical' | 'reverse' | 'custom';
 
+/** What should open first when launched from the glasses menu. */
+export type GlassesMenuDefault = 'resume' | 'scenes' | 'devices' | 'favorites';
+
 /** Home screen menu items (order determines main menu). */
 export type MainMenuItem = 'scenes' | 'devices' | 'favorites';
 
@@ -86,6 +89,7 @@ export interface StatsVisibility {
 
 /** User preferences (list order, favorites, stats visibility, local renames). */
 export interface Preferences {
+  glassesMenuDefault: GlassesMenuDefault;
   listOrder: {
     scenes: ListOrderPreference;
     rooms: ListOrderPreference;
@@ -102,7 +106,7 @@ export interface Preferences {
   schemaVersion: number;
 }
 
-export const PREFERENCES_SCHEMA_VERSION = 1;
+export const PREFERENCES_SCHEMA_VERSION = 2;
 
 export const DEFAULT_STATS_VISIBILITY: StatsVisibility = {
   enabled: true,
@@ -118,6 +122,7 @@ export const DEFAULT_STATS_VISIBILITY: StatsVisibility = {
 };
 
 export const DEFAULT_PREFERENCES: Preferences = {
+  glassesMenuDefault: 'resume',
   listOrder: {
     scenes: 'alphabetical',
     rooms: 'alphabetical',
@@ -194,6 +199,7 @@ export type Action =
   | { type: 'STATS_ROOM'; stats: GlobalStats | null }
   | { type: 'STATS_DEVICE'; stats: DeviceStats | null }
   | { type: 'PREFERENCES_LOADED'; preferences: Preferences }
+  | { type: 'SET_GLASSES_MENU_DEFAULT'; glassesMenuDefault: GlassesMenuDefault }
   | { type: 'SET_LIST_ORDER'; list: keyof Preferences['listOrder']; preference: ListOrderPreference; customIds?: string[] | MainMenuItem[] }
   | { type: 'SET_FAVORITES'; favoritesIds: Preferences['favoritesIds'] }
   | { type: 'SET_STATS_VISIBILITY'; statsVisibility: Partial<StatsVisibility> }

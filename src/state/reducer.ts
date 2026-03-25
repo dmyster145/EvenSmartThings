@@ -165,6 +165,12 @@ export function reduce(state: AppState, action: Action): AppState {
     case 'PREFERENCES_LOADED':
       return { ...state, preferences: action.preferences };
 
+    case 'SET_GLASSES_MENU_DEFAULT':
+      return {
+        ...state,
+        preferences: { ...state.preferences, glassesMenuDefault: action.glassesMenuDefault },
+      };
+
     case 'SET_LIST_ORDER': {
       const list = action.list;
       const next = {

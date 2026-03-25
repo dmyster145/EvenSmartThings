@@ -11,17 +11,22 @@ import {
   type ImageRawDataUpdate,
   type EvenHubEvent,
   type DeviceInfo,
+  type LaunchSource,
   ImageRawDataUpdateResult,
   DeviceModel,
 } from '@evenrealities/even_hub_sdk';
 
 export type EvenHubEventHandler = (event: EvenHubEvent) => void;
+export type LaunchSourceHandler = (source: LaunchSource) => void;
 
 export class EvenHubBridge {
   private bridge: EvenAppBridgeType | null = null;
   private imageQueue: ImageRawDataUpdate[] = [];
   private isSendingImage = false;
   private unsubscribeEvents: (() => void) | null = null;
+  private unsubscribeLaunchSource: (() => void) | null = null;
+  private launchSource: LaunchSource | null = null;
+  private launchSourceHandlers = new Set<LaunchSourceHandler>();
 
   /** @param timeoutMs If the bridge is not ready after this many ms, treat as no bridge (e.g. in a normal browser). Use a longer default so the Even App WebView has time to inject the bridge. */
   async init(timeoutMs: number = 10000): Promise<void> {
@@ -31,6 +36,21 @@ export class EvenHubBridge {
         setTimeout(() => reject(new Error('Bridge timeout')), timeoutMs)
       );
       this.bridge = await Promise.race([bridgePromise, timeoutPromise]);
+      try {
+        this.unsubscribeLaunchSource = this.bridge.onLaunchSource((source) => {
+          this.launchSource = source;
+          for (const handler of this.launchSourceHandlers) {
+            try {
+              handler(source);
+            } catch (err) {
+              console.error('[EvenHubBridge] Launch source handler error:', err);
+            }
+          }
+        });
+      } catch (err) {
+        console.warn('[EvenHubBridge] Launch source subscription error:', err);
+        this.unsubscribeLaunchSource = null;
+      }
       console.log('[EvenHubBridge] Bridge ready.');
     } catch (err) {
       console.warn('[EvenHubBridge] Bridge init failed (running outside Even Hub?):', err);
@@ -40,6 +60,24 @@ export class EvenHubBridge {
 
   hasBridge(): boolean {
     return this.bridge != null;
+  }
+
+  getLaunchSource(): LaunchSource | null {
+    return this.launchSource;
+  }
+
+  subscribeLaunchSource(handler: LaunchSourceHandler, emitCurrent = true): () => void {
+    this.launchSourceHandlers.add(handler);
+    if (emitCurrent && this.launchSource) {
+      try {
+        handler(this.launchSource);
+      } catch (err) {
+        console.error('[EvenHubBridge] Launch source handler error:', err);
+      }
+    }
+    return () => {
+      this.launchSourceHandlers.delete(handler);
+    };
   }
 
   /** Real glasses (G1/G2) may need raw image data; simulator decodes PNG. */
@@ -176,6 +214,9 @@ export class EvenHubBridge {
   async shutdown(): Promise<void> {
     this.unsubscribeEvents?.();
     this.unsubscribeEvents = null;
+    this.unsubscribeLaunchSource?.();
+    this.unsubscribeLaunchSource = null;
+    this.launchSourceHandlers.clear();
 
     if (this.bridge) {
       try {

@@ -6,11 +6,15 @@
  * subscribe events. Tap on list runs scene.
  */
 
-import { SmartThingsClient, BearerTokenAuthenticator, DeviceHealthState } from '@smartthings/core-sdk';
-import type { SceneSummary, Device } from '@smartthings/core-sdk';
+// Deep imports avoid the package barrel, which pulls server-only signature deps (http-signature/sshpk → crypto).
+import { SmartThingsClient } from '@smartthings/core-sdk/dist/st-client';
+import { BearerTokenAuthenticator } from '@smartthings/core-sdk/dist/authenticator';
+import { DeviceHealthState } from '@smartthings/core-sdk/dist/endpoint/devices';
+import type { SceneSummary } from '@smartthings/core-sdk/dist/endpoint/scenes';
+import type { Device } from '@smartthings/core-sdk/dist/endpoint/devices';
 import { createStore } from './state/store';
 import { buildInitialState } from './state/reducer';
-import type { SceneEntry, DeviceEntry, ListOrderPreference } from './state/contracts';
+import type { AppState, SceneEntry, DeviceEntry, GlassesMenuDefault, ListOrderPreference } from './state/contracts';
 import { mapEvenHubEvent } from './input/actions';
 import {
   composeStartupPage,
@@ -63,8 +67,15 @@ import {
   SCENES_PER_PAGE,
   ROOMS_PER_PAGE,
 } from './state/constants';
+import {
+  deriveLaunchResumeState,
+  getStoredLaunchResume,
+  launchResumeStateKey,
+  setStoredLaunchResume,
+  type LaunchResumeState,
+} from './state/launch-resume-storage';
 import { getStoredPreferences, setStoredPreferences } from './state/preferences-storage';
-import { ImageRawDataUpdate } from '@evenrealities/even_hub_sdk';
+import { ImageRawDataUpdate, LAUNCH_SOURCE_GLASSES_MENU } from '@evenrealities/even_hub_sdk';
 
 const CONFIG_PANEL_ID = 'config';
 const AUTH_RECONNECT_MESSAGE = 'SmartThings session expired or is unauthorized. Reconnect to continue.';
@@ -293,6 +304,8 @@ function setupConfigUI(
         }
       }
     });
+    const glassesMenuDefaultEl = document.getElementById('glasses-menu-default') as HTMLSelectElement | null;
+    if (glassesMenuDefaultEl) glassesMenuDefaultEl.value = prefs.glassesMenuDefault;
     const statEnabledCb = document.getElementById('stat-enabled') as HTMLInputElement | null;
     if (statEnabledCb) statEnabledCb.checked = prefs.statsVisibility.enabled;
     STAT_KEYS.forEach((key) => {
@@ -440,6 +453,18 @@ function setupConfigUI(
     if (downBtn) downBtn.onclick = () => move(false);
     if (doneBtn && container) doneBtn.onclick = () => { container.hidden = true; };
   });
+
+  const glassesMenuDefaultEl = document.getElementById('glasses-menu-default') as HTMLSelectElement | null;
+  if (glassesMenuDefaultEl) {
+    glassesMenuDefaultEl.addEventListener('change', () => {
+      store.dispatch({
+        type: 'SET_GLASSES_MENU_DEFAULT',
+        glassesMenuDefault: glassesMenuDefaultEl.value as GlassesMenuDefault,
+      });
+      saveAndRefresh();
+    });
+  }
+
   const statEnabledEl = document.getElementById('stat-enabled');
   if (statEnabledEl) {
     statEnabledEl.addEventListener('change', () => {
@@ -738,6 +763,7 @@ export async function initApp(): Promise<void> {
   }
 
   const store = createStore(buildInitialState());
+  const storedLaunchResumePromise = getStoredLaunchResume(hub).catch(() => null);
 
   let refreshPage: () => void = () => {};
   let smartThingsClient: SmartThingsClient | null = null;
@@ -782,7 +808,7 @@ export async function initApp(): Promise<void> {
     }
   };
 
-  (async () => {
+  const preferencesLoadPromise = (async () => {
     try {
       const prefs = await getStoredPreferences(hub);
       store.dispatch({ type: 'PREFERENCES_LOADED', preferences: prefs });
@@ -794,6 +820,7 @@ export async function initApp(): Promise<void> {
 
   let useRawImages = false;
   let useRealGlasses = false;
+  let roomsLoadPromise: Promise<void> | null = null;
 
   const startupPage = composeStartupPage(store.getState());
   const setupOk = await hub.setupPage(startupPage);
@@ -814,7 +841,8 @@ export async function initApp(): Promise<void> {
     }
   })();
 
-  void loadRooms();
+  roomsLoadPromise = loadRooms();
+  void roomsLoadPromise;
   void loadGlobalStats();
 
   try {
@@ -1356,6 +1384,144 @@ export async function initApp(): Promise<void> {
     }
   }
 
+  async function ensureRoomsLoaded(): Promise<void> {
+    if (!roomsLoadPromise) roomsLoadPromise = loadRooms();
+    await roomsLoadPromise;
+  }
+
+  async function restoreRoomDevicesView(roomId: string): Promise<boolean> {
+    await ensureRoomsLoaded();
+    if (!store.getState().rooms.some((room) => room.roomId === roomId)) return false;
+    store.dispatch({ type: 'NAV_ROOM', roomId });
+    refreshPage();
+    await loadDevicesForRoom(roomId);
+    return true;
+  }
+
+  async function restoreFavoriteDeviceView(deviceId: string, openDimView: boolean): Promise<boolean> {
+    await ensureRoomsLoaded();
+    if (!store.getState().allDevices.some((device) => device.deviceId === deviceId)) return false;
+    store.dispatch({ type: 'NAV_FAVORITE_DEVICE', deviceId });
+    refreshPage();
+    void loadDeviceStats(deviceId);
+    if (openDimView) {
+      store.dispatch({ type: 'NAV_VIEW', view: 'device-dim' });
+      refreshPage();
+    }
+    return true;
+  }
+
+  async function restoreRoomDeviceView(
+    roomId: string,
+    deviceId: string,
+    openDimView: boolean
+  ): Promise<boolean> {
+    const restoredRoom = await restoreRoomDevicesView(roomId);
+    if (!restoredRoom) return false;
+    if (!store.getState().devices.some((device) => device.deviceId === deviceId)) return false;
+    store.dispatch({ type: 'NAV_DEVICE', deviceId });
+    refreshPage();
+    void loadDeviceStats(deviceId);
+    if (openDimView) {
+      store.dispatch({ type: 'NAV_VIEW', view: 'device-dim' });
+      refreshPage();
+    }
+    return true;
+  }
+
+  async function restoreLaunchResume(launchResume: LaunchResumeState | null): Promise<boolean> {
+    if (!launchResume) return false;
+
+    switch (launchResume.view) {
+      case 'scenes':
+        store.dispatch({ type: 'NAV_VIEW', view: 'scenes' });
+        refreshPage();
+        return true;
+      case 'favorites':
+        if (store.getState().preferences.favoritesIds.length === 0) return false;
+        store.dispatch({ type: 'NAV_VIEW', view: 'favorites' });
+        refreshPage();
+        return true;
+      case 'rooms':
+        store.dispatch({ type: 'NAV_VIEW', view: 'rooms' });
+        refreshPage();
+        void ensureRoomsLoaded();
+        return true;
+      case 'devices':
+        return launchResume.roomId ? restoreRoomDevicesView(launchResume.roomId) : false;
+      case 'room-all-detail': {
+        if (!launchResume.roomId) return false;
+        const restored = await restoreRoomDevicesView(launchResume.roomId);
+        if (!restored) return false;
+        store.dispatch({ type: 'NAV_ROOM_ALL' });
+        refreshPage();
+        return true;
+      }
+      case 'room-all-dim': {
+        if (!launchResume.roomId) return false;
+        const restored = await restoreRoomDevicesView(launchResume.roomId);
+        if (!restored) return false;
+        store.dispatch({ type: 'NAV_ROOM_ALL' });
+        store.dispatch({ type: 'NAV_VIEW', view: 'room-all-dim' });
+        refreshPage();
+        return true;
+      }
+      case 'device-detail':
+      case 'device-dim': {
+        if (!launchResume.deviceId) return false;
+        const openDimView = launchResume.view === 'device-dim';
+        return launchResume.roomId
+          ? restoreRoomDeviceView(launchResume.roomId, launchResume.deviceId, openDimView)
+          : restoreFavoriteDeviceView(launchResume.deviceId, openDimView);
+      }
+      default:
+        return false;
+    }
+  }
+
+  function getConfiguredGlassesMenuLaunchView(): 'scenes' | 'rooms' | 'favorites' {
+    const state = store.getState();
+    switch (state.preferences.glassesMenuDefault) {
+      case 'devices':
+        return 'rooms';
+      case 'favorites':
+        return state.preferences.favoritesIds.length > 0 ? 'favorites' : 'scenes';
+      case 'scenes':
+        return 'scenes';
+      case 'resume':
+      default:
+        return state.preferences.favoritesIds.length > 0 ? 'favorites' : 'scenes';
+    }
+  }
+
+  function openConfiguredGlassesMenuView(): void {
+    const view = getConfiguredGlassesMenuLaunchView();
+    store.dispatch({ type: 'NAV_VIEW', view });
+    refreshPage();
+    if (view === 'rooms') void ensureRoomsLoaded();
+  }
+
+  let launchResumePersistenceEnabled = false;
+  let lastLaunchResumeKey = '';
+
+  function enableLaunchResumePersistence(storedLaunchResume: LaunchResumeState | null): void {
+    if (launchResumePersistenceEnabled) return;
+    launchResumePersistenceEnabled = true;
+    lastLaunchResumeKey = launchResumeStateKey(storedLaunchResume);
+  }
+
+  function persistLaunchResume(state: AppState): void {
+    if (!launchResumePersistenceEnabled) return;
+    const launchResume = deriveLaunchResumeState(state);
+    if (!launchResume) return;
+    const nextKey = launchResumeStateKey(launchResume);
+    if (nextKey === lastLaunchResumeKey) return;
+    lastLaunchResumeKey = nextKey;
+    void setStoredLaunchResume(hub, launchResume).catch((err) => {
+      console.warn('[SmartThingsControls] Failed to save launch resume:', err);
+    });
+  }
+
   function commitTap(): void {
     commitTimeoutId = null;
     const state = store.getState();
@@ -1644,6 +1810,46 @@ export async function initApp(): Promise<void> {
   }
 
   setupConfigUI(store, hub, refreshPage);
+  store.subscribe((state) => {
+    persistLaunchResume(state);
+  });
+
+  let launchSourceResolved = false;
+  let launchSourceTimeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    if (launchSourceResolved) return;
+    launchSourceResolved = true;
+    void storedLaunchResumePromise.then((storedLaunchResume) => {
+      enableLaunchResumePersistence(storedLaunchResume);
+    });
+  }, 1500);
+
+  hub.subscribeLaunchSource((source) => {
+    if (launchSourceResolved) return;
+    launchSourceResolved = true;
+    if (launchSourceTimeoutId !== null) {
+      clearTimeout(launchSourceTimeoutId);
+      launchSourceTimeoutId = null;
+    }
+    void (async () => {
+      const storedLaunchResume = await storedLaunchResumePromise;
+      try {
+        if (source === LAUNCH_SOURCE_GLASSES_MENU) {
+          await preferencesLoadPromise;
+          if (store.getState().preferences.glassesMenuDefault === 'resume') {
+            const restored = await restoreLaunchResume(storedLaunchResume);
+            if (!restored) openConfiguredGlassesMenuView();
+          } else {
+            openConfiguredGlassesMenuView();
+          }
+        }
+      } finally {
+        enableLaunchResumePersistence(storedLaunchResume);
+        if (source === LAUNCH_SOURCE_GLASSES_MENU) {
+          persistLaunchResume(store.getState());
+        }
+      }
+    })();
+  });
 
   hub.subscribeEvents((event) => {
     const action = mapEvenHubEvent(event, store.getState());
