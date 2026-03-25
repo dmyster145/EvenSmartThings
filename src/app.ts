@@ -124,6 +124,25 @@ function describeStartUpPageResult(code: StartUpPageCreateResult | null): string
   }
 }
 
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(textarea);
+  if (!copied) {
+    throw new Error('Clipboard API unavailable');
+  }
+}
+
 type AuthUI = {
   showConnectPanel: (message: string, canConnect?: boolean) => void;
   showConnectedState: (sessionStatus?: SessionStatus) => void;
@@ -734,6 +753,8 @@ async function runExecuteScene(
 export async function initApp(): Promise<void> {
   const hub = new EvenHubBridge();
   const toggleDebugBtn = document.getElementById('toggle-debug-btn');
+  const copyDebugLogBtn = document.getElementById('copy-debug-log-btn') as HTMLButtonElement | null;
+  const clearDebugLogBtn = document.getElementById('clear-debug-log-btn') as HTMLButtonElement | null;
   const debugLogContainer = document.getElementById('debug-log-container');
   const debugLog = document.getElementById('debug-log');
   const debugLines: string[] = [];
@@ -761,6 +782,25 @@ export async function initApp(): Promise<void> {
       setDebugVisible(!visible);
     };
   }
+  if (copyDebugLogBtn) {
+    copyDebugLogBtn.onclick = async () => {
+      const content = debugLines.join('\n');
+      if (!content) return;
+      try {
+        await copyTextToClipboard(content);
+        appendDebugLog('Debug log copied to clipboard.');
+      } catch (err) {
+        appendDebugLog(`Debug log copy failed: ${getErrorMessage(err)}`, true);
+      }
+    };
+  }
+  if (clearDebugLogBtn) {
+    clearDebugLogBtn.onclick = () => {
+      debugLines.length = 0;
+      if (debugLog) debugLog.textContent = '';
+    };
+  }
+  setDebugVisible(true);
 
   try {
     await hub.init();

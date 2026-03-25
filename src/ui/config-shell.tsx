@@ -507,9 +507,6 @@ function ConnectionTab(): ReactElement {
           <Button id="disconnect-smartthings-btn" type="button" variant="secondary">
             Disconnect
           </Button>
-          <Button id="toggle-debug-btn" type="button" variant="secondary" className="dev-only">
-            Show debug log
-          </Button>
         </div>
         <div id="disconnect-smartthings-confirm" className="confirm-box" style={{ display: 'none' }}>
           <p className="legacy-subcopy">
@@ -524,14 +521,38 @@ function ConnectionTab(): ReactElement {
             </button>
           </div>
         </div>
-        <div id="debug-log-container" className="debug-box mt-4" style={{ display: 'none' }}>
-          <div className="debug-title">Debug log</div>
-          <pre id="debug-log" />
-        </div>
       </SurfaceCard>
 
       <SectionHeader title="Companion Access" />
       <InfoRows label="Operational Notes" rows={CONNECTION_ROWS} />
+    </>
+  );
+}
+
+function RuntimeConsoleCard(): ReactElement {
+  return (
+    <>
+      <SectionHeader title="Runtime Console" />
+      <SurfaceCard>
+        <p className="text-[13px] tracking-[-0.13px] text-text-dim">
+          Use this phone-side console to capture bridge and glasses startup logs, then copy them back here for debugging.
+        </p>
+        <div className="btn-group mt-4">
+          <Button id="toggle-debug-btn" type="button" variant="secondary">
+            Hide console
+          </Button>
+          <Button id="copy-debug-log-btn" type="button" variant="secondary">
+            Copy log
+          </Button>
+          <Button id="clear-debug-log-btn" type="button" variant="secondary">
+            Clear log
+          </Button>
+        </div>
+        <div id="debug-log-container" className="debug-box mt-4">
+          <div className="debug-title">Phone debug console</div>
+          <pre id="debug-log" />
+        </div>
+      </SurfaceCard>
     </>
   );
 }
@@ -607,6 +628,8 @@ export function ConfigShell(): ReactElement {
           <div hidden={activeTab !== 'connection'}>
             <ConnectionTab />
           </div>
+
+          <RuntimeConsoleCard />
         </section>
 
         <div id="config-toast" className="toast" role="status" aria-live="polite" style={{ display: 'none' }} />
