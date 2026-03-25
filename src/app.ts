@@ -75,7 +75,7 @@ import {
   type LaunchResumeState,
 } from './state/launch-resume-storage';
 import { getStoredPreferences, setStoredPreferences } from './state/preferences-storage';
-import { ImageRawDataUpdate, LAUNCH_SOURCE_GLASSES_MENU } from '@evenrealities/even_hub_sdk';
+import { ImageRawDataUpdate, LAUNCH_SOURCE_GLASSES_MENU, StartUpPageCreateResult } from '@evenrealities/even_hub_sdk';
 
 const CONFIG_PANEL_ID = 'config';
 const AUTH_RECONNECT_MESSAGE = 'SmartThings session expired or is unauthorized. Reconnect to continue.';
@@ -107,6 +107,21 @@ function isSmartThingsAuthError(err: unknown): boolean {
 
 function formatSessionExpiry(_expiresAt?: string): string {
   return 'Connected. SmartThings session is active.';
+}
+
+function describeStartUpPageResult(code: StartUpPageCreateResult | null): string {
+  switch (code) {
+    case StartUpPageCreateResult.success:
+      return 'success';
+    case StartUpPageCreateResult.invalid:
+      return 'invalid';
+    case StartUpPageCreateResult.oversize:
+      return 'oversize';
+    case StartUpPageCreateResult.outOfMemory:
+      return 'outOfMemory';
+    default:
+      return 'unknown';
+  }
 }
 
 type AuthUI = {
@@ -718,16 +733,47 @@ async function runExecuteScene(
 
 export async function initApp(): Promise<void> {
   const hub = new EvenHubBridge();
+  const toggleDebugBtn = document.getElementById('toggle-debug-btn');
+  const debugLogContainer = document.getElementById('debug-log-container');
+  const debugLog = document.getElementById('debug-log');
+  const debugLines: string[] = [];
+
+  function setDebugVisible(visible: boolean): void {
+    if (!debugLogContainer) return;
+    debugLogContainer.style.display = visible ? 'block' : 'none';
+    if (toggleDebugBtn) {
+      toggleDebugBtn.textContent = visible ? 'Hide debug log' : 'Show debug log';
+    }
+  }
+
+  function appendDebugLog(message: string, reveal = false): void {
+    const line = `[${new Date().toLocaleTimeString('en-US', { hour12: false })}] ${message}`;
+    debugLines.push(line);
+    if (debugLines.length > 120) debugLines.shift();
+    if (debugLog) debugLog.textContent = debugLines.join('\n');
+    console.log(`[SmartThingsControls] ${message}`);
+    if (reveal) setDebugVisible(true);
+  }
+
+  if (toggleDebugBtn && debugLogContainer) {
+    toggleDebugBtn.onclick = () => {
+      const visible = debugLogContainer.style.display !== 'none';
+      setDebugVisible(!visible);
+    };
+  }
 
   try {
     await hub.init();
+    appendDebugLog(`Bridge initialization complete. bridge=${hub.hasBridge()}`);
   } catch (err) {
     console.warn('[SmartThingsControls] Init error:', err);
+    appendDebugLog(`Bridge init threw: ${getErrorMessage(err)}`, true);
     showPanel(OPEN_IN_EVEN_ID);
     return;
   }
 
   if (!hub.hasBridge()) {
+    appendDebugLog('No Even bridge available in this webview.');
     showPanel(OPEN_IN_EVEN_ID);
     return;
   }
@@ -736,8 +782,12 @@ export async function initApp(): Promise<void> {
   let initialSessionStatus: SessionStatus;
   try {
     initialSessionStatus = await getSessionStatus();
+    appendDebugLog(
+      `Session status loaded. authenticated=${initialSessionStatus.authenticated} configured=${initialSessionStatus.configured}`
+    );
   } catch (err) {
     console.warn('[SmartThingsControls] getSessionStatus error:', err);
+    appendDebugLog(`Session status failed: ${getErrorMessage(err)}`, true);
     authUI.showConnectPanel(AUTH_SERVICE_UNAVAILABLE_MESSAGE, false);
     return;
   }
@@ -751,16 +801,7 @@ export async function initApp(): Promise<void> {
   }
 
   authUI.showConnectedState(initialSessionStatus);
-
-  const toggleDebugBtn = document.getElementById('toggle-debug-btn');
-  const debugLogContainer = document.getElementById('debug-log-container');
-  if (toggleDebugBtn && debugLogContainer) {
-    toggleDebugBtn.onclick = () => {
-      const visible = debugLogContainer.style.display !== 'none';
-      debugLogContainer.style.display = visible ? 'none' : 'block';
-      toggleDebugBtn.textContent = visible ? 'Show debug log' : 'Hide debug log';
-    };
-  }
+  appendDebugLog('SmartThings session is active.');
 
   const store = createStore(buildInitialState());
   const storedLaunchResumePromise = getStoredLaunchResume(hub).catch(() => null);
@@ -823,12 +864,15 @@ export async function initApp(): Promise<void> {
   let roomsLoadPromise: Promise<void> | null = null;
 
   const startupPage = composeStartupPage(store.getState());
-  const setupOk = await hub.setupPage(startupPage);
-  if (!setupOk) {
-    const state = store.getState();
-    const focusIndex = Math.min(state.focusedListIndex, getLastListIndex(state));
-    void hub.updatePage(composePageForState(state, focusIndex));
-  }
+  appendDebugLog(
+    `Creating glasses startup page. view=${store.getState().listView} containers=${startupPage.containerTotalNum ?? 0}`
+  );
+  const startupResult = await hub.setupPage(startupPage);
+  appendDebugLog(
+    `Startup page result: ${describeStartUpPageResult(startupResult.code)}`
+      + (startupResult.success ? '' : ' (the glasses may remain blank until this succeeds)'),
+    !startupResult.success
+  );
 
   (async () => {
     try {
@@ -853,8 +897,12 @@ export async function initApp(): Promise<void> {
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     useRawImages = !isLikelySimulator && hub.isRealGlasses(deviceInfo);
     useRealGlasses = hub.isRealGlasses(deviceInfo);
+    appendDebugLog(
+      `Device info loaded. model=${deviceInfo?.model ?? 'unknown'} connectType=${deviceInfo?.status?.connectType ?? 'unknown'} rawImages=${useRawImages}`
+    );
   } catch {
     // Icon preloading is optional; fallback icons are generated at render time.
+    appendDebugLog('Device info lookup failed; continuing with default image settings.');
   }
 
   const blankConfirmation = getBlankImageData(CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT, useRawImages);
@@ -922,12 +970,29 @@ export async function initApp(): Promise<void> {
   }
 
   /** Rebuild and send the current page, preserving the list focus so it doesn't jump to top. */
-  refreshPage = (): void => {
+  async function rebuildFullPage(reason: string): Promise<boolean> {
     const state = store.getState();
     const lastListIndex = getLastListIndex(state);
     const focusIndex = Math.min(state.focusedListIndex, lastListIndex);
-    void hub.updatePage(composePageForState(state, focusIndex));
+    const success = await hub.updatePage(composePageForState(state, focusIndex));
+    if (!success) {
+      appendDebugLog(`Glasses page rebuild failed (${reason}).`, true);
+    }
+    return success;
+  }
+
+  refreshPage = (): void => {
+    void rebuildFullPage('state refresh');
   };
+
+  if (startupResult.success) {
+    void rebuildFullPage('post-startup full layout');
+  } else {
+    const rebuilt = await rebuildFullPage('startup fallback');
+    if (!rebuilt) {
+      authUI.setConnectionStatus('Connected, but the glasses UI failed to initialize. Open Connection > debug log.');
+    }
+  }
 
   async function loadGlobalStats(): Promise<void> {
     try {
@@ -1824,6 +1889,7 @@ export async function initApp(): Promise<void> {
   }, 1500);
 
   hub.subscribeLaunchSource((source) => {
+    appendDebugLog(`Launch source received: ${source}`);
     if (launchSourceResolved) return;
     launchSourceResolved = true;
     if (launchSourceTimeoutId !== null) {
@@ -1888,5 +1954,6 @@ export async function initApp(): Promise<void> {
     }
   });
 
+  appendDebugLog('EvenHub event subscription ready.');
   console.log('[SmartThingsControls] Initialized.');
 }

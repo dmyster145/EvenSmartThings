@@ -4,6 +4,7 @@
 
 import {
   waitForEvenAppBridge,
+  StartUpPageCreateResult,
   TextContainerUpgrade,
   type EvenAppBridge as EvenAppBridgeType,
   type CreateStartUpPageContainer,
@@ -18,6 +19,10 @@ import {
 
 export type EvenHubEventHandler = (event: EvenHubEvent) => void;
 export type LaunchSourceHandler = (source: LaunchSource) => void;
+export type SetupPageResult = {
+  success: boolean;
+  code: StartUpPageCreateResult | null;
+};
 
 export class EvenHubBridge {
   private bridge: EvenAppBridgeType | null = null;
@@ -115,22 +120,22 @@ export class EvenHubBridge {
     }
   }
 
-  async setupPage(container: CreateStartUpPageContainer): Promise<boolean> {
+  async setupPage(container: CreateStartUpPageContainer): Promise<SetupPageResult> {
     if (!this.bridge) {
       console.log('[EvenHubBridge] No bridge — skipping setupPage.');
-      return false;
+      return { success: false, code: null };
     }
 
     try {
-      const result = await this.bridge.createStartUpPageContainer(container);
-      const success = result === 0;
+      const result = StartUpPageCreateResult.normalize(await this.bridge.createStartUpPageContainer(container));
+      const success = result === StartUpPageCreateResult.success;
       if (!success) {
         console.error('[EvenHubBridge] createStartUpPageContainer failed:', result);
       }
-      return success;
+      return { success, code: result };
     } catch (err) {
       console.error('[EvenHubBridge] createStartUpPageContainer error:', err);
-      return false;
+      return { success: false, code: null };
     }
   }
 

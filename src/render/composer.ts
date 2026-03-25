@@ -430,9 +430,11 @@ function listItemNamesForState(state: AppState): string[] {
 }
 
 export function composeStartupPage(state: AppState): CreateStartUpPageContainer {
+  // Keep startup creation as small as possible; once it succeeds, rebuildPageContainer
+  // can upgrade into the full list + stats + image layout.
   const listObjects = buildListContainers(state);
-  const textObjects = buildStatsTextContainers(state);
-  const imageObjects = buildImageContainers();
+  const textObjects: TextContainerProperty[] = [];
+  const imageObjects: ImageContainerProperty[] = [];
   return new CreateStartUpPageContainer({
     containerTotalNum: listObjects.length + textObjects.length + imageObjects.length,
     listObject: listObjects,
