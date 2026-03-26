@@ -263,7 +263,11 @@ export async function handleSessionRequest(request, response) {
     const url = new URL(request.url ?? '/', getRequestOrigin(request));
 
     if (request.method === 'GET') {
+      const cookies = parseCookies(request);
+      const cookiePresent = !!cookies[config.sessionCookieName];
+      console.log(`[smartthings-controls-server] Session check: hasCookie=${cookiePresent} origin=${request.headers.origin ?? 'none'}`);
       const session = await getAuthenticatedSession(request);
+      console.log(`[smartthings-controls-server] Session result: authenticated=${!!session}`);
       if (!session) {
         return json(response, 200, {
           authenticated: false,
@@ -474,6 +478,50 @@ export async function handleSmartThingsExecuteRequest(request, response) {
   }
 }
 
+export async function handleAuthDebugRequest(request, response) {
+  try {
+    if (handlePreflightIfNeeded(response, request, config.publicAppUrl)) return;
+    applyCors(response, request, config.publicAppUrl);
+    if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);
+
+    const cookies = parseCookies(request);
+    const sessionId = cookies[config.sessionCookieName] ?? null;
+    const hasCookie = !!sessionId;
+
+    let sessionFound = false;
+    let sessionExpiresAt = null;
+    let refreshWouldRun = false;
+    let sessionError = null;
+
+    if (hasCookie) {
+      try {
+        const session = await store.getSession(sessionId);
+        sessionFound = !!session;
+        if (session) {
+          sessionExpiresAt = session.expiresAt ?? null;
+          const expiresAtMs = Date.parse(session.expiresAt ?? '');
+          refreshWouldRun = Number.isNaN(expiresAtMs) || expiresAtMs <= Date.now() + 60_000;
+        }
+      } catch (err) {
+        sessionError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    return json(response, 200, {
+      ts: new Date().toISOString(),
+      origin: request.headers.origin ?? null,
+      hasCookie,
+      sessionFound,
+      sessionExpiresAt,
+      refreshWouldRun,
+      sessionError,
+      ...serverConfigurationSummary(),
+    });
+  } catch (err) {
+    return sendServerError(response, err);
+  }
+}
+
 export async function handleAuthStartRequest(request, response) {
   try {
     if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);
@@ -486,6 +534,7 @@ export async function handleAuthStartRequest(request, response) {
 
     const url = new URL(request.url ?? '/', getRequestOrigin(request));
     const returnTo = normalizeReturnToPath(url.searchParams.get('return_to'));
+    console.log(`[smartthings-controls-server] OAuth start: returnTo=${returnTo}`);
     const state = await store.createOAuthState(returnTo);
     return redirect(response, buildAuthorizeUrl(config, state));
   } catch (err) {
@@ -506,18 +555,24 @@ export async function handleAuthCallbackRequest(request, response) {
     const url = new URL(request.url ?? '/', getRequestOrigin(request));
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
+    console.log(`[smartthings-controls-server] OAuth callback: hasCode=${!!code} hasState=${!!state}`);
     if (!code || !state) {
       return json(response, 400, { error: 'Missing code or state' });
     }
 
     const oauthState = await store.consumeOAuthState(state);
+    console.log(`[smartthings-controls-server] OAuth state lookup: found=${!!oauthState} returnTo=${oauthState?.returnTo ?? 'n/a'}`);
     if (!oauthState) {
       return json(response, 400, { error: 'Invalid or expired OAuth state' });
     }
 
     const tokenSet = await exchangeAuthorizationCode(config, code);
+    console.log(`[smartthings-controls-server] Token exchange: expiresAt=${tokenSet.expiresAt} hasRefreshToken=${!!tokenSet.refreshToken}`);
     const session = await store.createSession(tokenSet);
-    setSessionCookie(response, config.sessionCookieName, session.sessionId, getSessionCookieOptions(request));
+    console.log(`[smartthings-controls-server] Session created: sessionId=${session.sessionId}`);
+    const cookieOptions = getSessionCookieOptions(request);
+    console.log(`[smartthings-controls-server] Setting cookie: secure=${cookieOptions.secure} redirectTo=${normalizeReturnToPath(oauthState.returnTo)}`);
+    setSessionCookie(response, config.sessionCookieName, session.sessionId, cookieOptions);
     return redirect(response, normalizeReturnToPath(oauthState.returnTo));
   } catch (err) {
     return sendServerError(response, err);
