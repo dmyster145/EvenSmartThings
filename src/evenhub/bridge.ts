@@ -45,10 +45,15 @@ interface TextQueueEntry {
   enqueuedAtMs: number;
 }
 
-/** Cheap fingerprint for image dirty-checking — avoids storing full buffers. */
+/** Cheap fingerprint for image dirty-checking — avoids storing full buffers.
+ *  Samples first, middle, and last bytes. For 1-bit BMPs (same fixed header),
+ *  first is always identical across images of the same size, so the mid byte
+ *  (deep in the pixel data) is the primary discriminator between e.g. a blank
+ *  image and a confirmation icon. */
 interface ImageFingerprint {
   length: number;
   first: number;
+  mid: number;
   last: number;
 }
 
@@ -350,7 +355,7 @@ export class EvenHubBridge {
     if (!prev) return true;
     const fp = this.buildFingerprint(data);
     if (!fp) return true;
-    return prev.length !== fp.length || prev.first !== fp.first || prev.last !== fp.last;
+    return prev.length !== fp.length || prev.first !== fp.first || prev.mid !== fp.mid || prev.last !== fp.last;
   }
 
   private updateImageFingerprint(data: ImageRawDataUpdate): void {
@@ -364,14 +369,18 @@ export class EvenHubBridge {
     const imageData = data.imageData;
     if (Array.isArray(imageData)) {
       const arr = imageData as number[];
+      const midIdx = Math.floor(arr.length / 2);
       const first = arr[0];
+      const mid = arr[midIdx];
       const last = arr[arr.length - 1];
-      return { length: arr.length, first: first ?? -1, last: last ?? -1 };
+      return { length: arr.length, first: first ?? -1, mid: mid ?? -1, last: last ?? -1 };
     }
     if (typeof imageData === 'string') {
+      const midIdx = Math.floor(imageData.length / 2);
       return {
         length: imageData.length,
         first: imageData.length > 0 ? imageData.charCodeAt(0) : -1,
+        mid: imageData.length > 0 ? imageData.charCodeAt(midIdx) : -1,
         last: imageData.length > 0 ? imageData.charCodeAt(imageData.length - 1) : -1,
       };
     }

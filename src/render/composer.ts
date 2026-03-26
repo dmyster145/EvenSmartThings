@@ -520,7 +520,7 @@ export function composeTextModeListContent(state: AppState): string {
   );
   const endIndex = startIndex + visibleRows;
 
-  const lines = [title];
+  const lines = title ? [title] : [];
   for (let index = startIndex; index < endIndex; index += 1) {
     const itemName = itemNames[index] ?? '';
     const name = itemName.trim().length > 0 ? itemName : ' ';
@@ -718,7 +718,7 @@ function buildFullScreenTextContainers(content: string): TextContainerProperty[]
 }
 
 function textModeTitle(state: AppState): string {
-  if (state.listView === 'main') return 'SmartThings';
+  if (state.listView === 'main') return '';
   if (state.listView === 'scenes') return 'Scenes';
   if (state.listView === 'rooms') return 'Rooms';
   if (state.listView === 'favorites') return 'Favorites';
