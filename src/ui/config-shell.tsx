@@ -309,7 +309,7 @@ function OverviewTab(): ReactElement {
 
       <SettingsGroup label="App Launch">
         <SettingsRow label="Default view" htmlFor="glasses-menu-default">
-          <Select id="glasses-menu-default" defaultValue="resume" options={GLASSES_MENU_OPTIONS} />
+          <Select id="glasses-menu-default" defaultValue="main" options={GLASSES_MENU_OPTIONS} />
         </SettingsRow>
       </SettingsGroup>
 

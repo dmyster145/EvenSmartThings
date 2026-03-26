@@ -122,7 +122,7 @@ export const DEFAULT_STATS_VISIBILITY: StatsVisibility = {
 };
 
 export const DEFAULT_PREFERENCES: Preferences = {
-  glassesMenuDefault: 'resume',
+  glassesMenuDefault: 'main',
   listOrder: {
     scenes: 'alphabetical',
     rooms: 'alphabetical',
