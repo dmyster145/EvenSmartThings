@@ -139,7 +139,16 @@ async function getAuthenticatedSession(request) {
   if (!sessionId) return null;
   let session = await store.getSession(sessionId);
   if (!session) return null;
-  session = await ensureFreshSession(config, store, session);
+  try {
+    session = await ensureFreshSession(config, store, session);
+  } catch (err) {
+    // Token refresh failed (e.g. SmartThings rejected the refresh token).
+    // Treat the session as expired so the user is prompted to reconnect
+    // rather than seeing an opaque "service unavailable" 500 error.
+    console.warn('[smartthings-controls-server] Token refresh failed; clearing session:', err);
+    await store.deleteSession(sessionId).catch(() => {});
+    return null;
+  }
   if (shouldTouchSession(session)) {
     session = (await store.touchSession(sessionId)) ?? session;
   }

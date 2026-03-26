@@ -2,9 +2,12 @@ function basicAuthHeader(clientId, clientSecret) {
   return 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`, 'utf8').toString('base64');
 }
 
+const FALLBACK_EXPIRY_SECONDS = 86400; // 24 h — used when SmartThings omits or returns 0 for expires_in
+
 function computeExpiry(expiresInSeconds) {
-  const expiresInMs = Math.max(0, Number(expiresInSeconds || 0)) * 1000;
-  return new Date(Date.now() + expiresInMs).toISOString();
+  const seconds = Number(expiresInSeconds);
+  const effective = Number.isFinite(seconds) && seconds > 60 ? seconds : FALLBACK_EXPIRY_SECONDS;
+  return new Date(Date.now() + effective * 1000).toISOString();
 }
 
 async function exchangeToken(config, params) {
