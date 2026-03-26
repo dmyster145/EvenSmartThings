@@ -1,0 +1,23 @@
+{
+  "package_id": "io.github.dmyster145.smartthingscontrols",
+  "edition": "202601",
+  "name": "SmartThings Controls",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.8",
+  "tagline": "SmartThings for your G2 glasses",
+  "description": "Browse SmartThings scenes, rooms, and devices in a list, then tap to run or control them. Manage favorites, custom names, and list order in the config panel.",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Required to reach the SmartThings OAuth backend for session management, access tokens, and executing scene and device commands.",
+      "whitelist": [
+        "https://even-smart-things.vercel.app"
+      ]
+    }
+  ],
+  "supported_languages": [
+    "en"
+  ]
+}
