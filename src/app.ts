@@ -60,6 +60,7 @@ import {
 } from './state/selectors';
 import { EvenHubBridge } from './evenhub/bridge';
 import {
+  consumeSessionTokenFromUrl,
   disconnectSmartThings,
   executeBatchDeviceCommandsViaServer,
   executeDeviceCommandViaServer,
@@ -768,6 +769,12 @@ async function runExecuteScene(
 }
 
 export async function initApp(): Promise<void> {
+  // Consume any session token passed back via URL params after OAuth redirect.
+  const urlSessionToken = consumeSessionTokenFromUrl();
+  if (urlSessionToken) {
+    console.log('[SmartThingsControls] Session token received from OAuth redirect URL.');
+  }
+
   const hub = new EvenHubBridge();
   const toggleDebugBtn = document.getElementById('toggle-debug-btn');
   const copyDebugLogBtn = document.getElementById('copy-debug-log-btn') as HTMLButtonElement | null;

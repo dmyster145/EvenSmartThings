@@ -44,6 +44,13 @@ export function parseCookies(request) {
   return cookies;
 }
 
+export function parseSessionFromBearer(request) {
+  const authHeader = request.headers.authorization ?? '';
+  if (!authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.slice(7).trim();
+  return token || null;
+}
+
 export function setSessionCookie(response, name, value, options = {}) {
   const secure = options.secure ?? false;
   // SameSite=None is required for cross-origin cookie delivery (Even webview / local simulator).
@@ -99,7 +106,7 @@ export function handlePreflightIfNeeded(response, request, publicAppUrl) {
       'Access-Control-Allow-Origin': allowedOrigin,
       'Access-Control-Allow-Credentials': 'true',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Accept',
+      'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization',
       'Access-Control-Max-Age': '86400',
       Vary: 'Origin',
     });

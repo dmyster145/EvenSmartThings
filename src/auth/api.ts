@@ -42,6 +42,55 @@ declare const __API_BASE_URL__: string;
 const API_BASE: string =
   typeof __API_BASE_URL__ !== 'undefined' && __API_BASE_URL__ ? __API_BASE_URL__ : '';
 
+const SESSION_TOKEN_STORAGE_KEY = 'smartthings_controls_bearer_session';
+
+export function readStoredSessionToken(): string | null {
+  try {
+    return localStorage.getItem(SESSION_TOKEN_STORAGE_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeStoredSessionToken(token: string | null): void {
+  try {
+    if (token) {
+      localStorage.setItem(SESSION_TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Reads the `_st` session token from the current URL's query params,
+ * stores it in localStorage, and removes it from the URL (replaceState).
+ * Call once at app startup.
+ */
+export function consumeSessionTokenFromUrl(): string | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('_st');
+    if (!token) return null;
+    params.delete('_st');
+    const newSearch = params.toString();
+    const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash;
+    window.history.replaceState(null, '', newUrl);
+    writeStoredSessionToken(token);
+    return token;
+  } catch {
+    return null;
+  }
+}
+
+function getSessionAuthHeaders(): Record<string, string> {
+  const token = readStoredSessionToken();
+  if (!token) return {};
+  return { Authorization: `Bearer ${token}` };
+}
+
 export const SMARTTHINGS_DEBUG_EVENT = 'smartthings-controls:debug';
 
 type DeviceCommandPayload = {
@@ -130,7 +179,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 export async function getSessionStatus(): Promise<SessionStatus> {
   const response = await fetch(`${API_BASE}/api/session`, {
     credentials: 'include',
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', ...getSessionAuthHeaders() },
   });
   return parseJsonResponse<SessionStatus>(response);
 }
@@ -151,7 +200,7 @@ export async function getAuthDebugInfo(): Promise<Record<string, unknown>> {
 export async function getSmartThingsAccessToken(): Promise<AccessTokenResponse> {
   const response = await fetch(`${API_BASE}/api/smartthings/access-token`, {
     credentials: 'include',
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', ...getSessionAuthHeaders() },
   });
   return parseJsonResponse<AccessTokenResponse>(response);
 }
@@ -160,9 +209,10 @@ export async function disconnectSmartThings(): Promise<void> {
   const response = await fetch(`${API_BASE}/api/session/logout`, {
     method: 'POST',
     credentials: 'include',
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', ...getSessionAuthHeaders() },
   });
   await parseJsonResponse(response);
+  writeStoredSessionToken(null);
 }
 
 async function executeSmartThingsRelayRequest<T>(body: Record<string, unknown>): Promise<T> {
@@ -177,6 +227,7 @@ async function executeSmartThingsRelayRequest<T>(body: Record<string, unknown>):
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
+      ...getSessionAuthHeaders(),
     },
     cache: 'no-store',
     keepalive: true,
@@ -273,7 +324,9 @@ export async function executeBatchDeviceCommandsViaServer(
 }
 
 export function startSmartThingsConnect(returnTo?: string): void {
-  const fallbackReturnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  // Use the full origin URL so the OAuth redirect comes back to this exact origin
+  // (important when running from localhost in the Even simulator).
+  const fallbackReturnTo = window.location.href.split('#')[0]; // strip hash
   const nextReturnTo = returnTo || fallbackReturnTo || '/';
   window.location.assign(`${API_BASE}/api/auth/smartthings/start?return_to=${encodeURIComponent(nextReturnTo)}`);
 }

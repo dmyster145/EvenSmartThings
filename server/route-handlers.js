@@ -7,6 +7,7 @@ import {
   makeOpaqueId,
   methodNotAllowed,
   parseCookies,
+  parseSessionFromBearer,
   readJsonBody,
   redirect,
   setSessionCookie,
@@ -47,10 +48,25 @@ function shouldTouchSession(session) {
   return updatedAtMs <= Date.now() - config.rollingSessionTouchIntervalSeconds * 1000;
 }
 
-function normalizeReturnToPath(value) {
+function isTrustedReturnToUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.origin === config.publicAppUrl) return true;
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(parsed.origin)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeReturnTo(value) {
   if (typeof value !== 'string' || !value) return '/';
-  if (!value.startsWith('/')) return '/';
-  if (value.startsWith('//')) return '/';
+  // Allow full trusted URLs (e.g. http://localhost:5173/)
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    return isTrustedReturnToUrl(value) ? value : '/';
+  }
+  // Otherwise require a safe relative path
+  if (!value.startsWith('/') || value.startsWith('//')) return '/';
   return value;
 }
 
@@ -135,7 +151,7 @@ function sessionSummary(session) {
 
 async function getAuthenticatedSession(request) {
   const cookies = parseCookies(request);
-  const sessionId = cookies[config.sessionCookieName];
+  const sessionId = cookies[config.sessionCookieName] || parseSessionFromBearer(request);
   if (!sessionId) return null;
   let session = await store.getSession(sessionId);
   if (!session) return null;
@@ -265,7 +281,8 @@ export async function handleSessionRequest(request, response) {
     if (request.method === 'GET') {
       const cookies = parseCookies(request);
       const cookiePresent = !!cookies[config.sessionCookieName];
-      console.log(`[smartthings-controls-server] Session check: hasCookie=${cookiePresent} origin=${request.headers.origin ?? 'none'}`);
+      const bearerPresent = !!parseSessionFromBearer(request);
+      console.log(`[smartthings-controls-server] Session check: hasCookie=${cookiePresent} hasBearer=${bearerPresent} origin=${request.headers.origin ?? 'none'}`);
       const session = await getAuthenticatedSession(request);
       console.log(`[smartthings-controls-server] Session result: authenticated=${!!session}`);
       if (!session) {
@@ -533,7 +550,7 @@ export async function handleAuthStartRequest(request, response) {
     }
 
     const url = new URL(request.url ?? '/', getRequestOrigin(request));
-    const returnTo = normalizeReturnToPath(url.searchParams.get('return_to'));
+    const returnTo = normalizeReturnTo(url.searchParams.get('return_to'));
     console.log(`[smartthings-controls-server] OAuth start: returnTo=${returnTo}`);
     const state = await store.createOAuthState(returnTo);
     return redirect(response, buildAuthorizeUrl(config, state));
@@ -571,9 +588,14 @@ export async function handleAuthCallbackRequest(request, response) {
     const session = await store.createSession(tokenSet);
     console.log(`[smartthings-controls-server] Session created: sessionId=${session.sessionId}`);
     const cookieOptions = getSessionCookieOptions(request);
-    console.log(`[smartthings-controls-server] Setting cookie: secure=${cookieOptions.secure} redirectTo=${normalizeReturnToPath(oauthState.returnTo)}`);
+    const returnToBase = normalizeReturnTo(oauthState.returnTo);
+    // Append the session ID as a URL param so cross-origin webviews can pick it up
+    // without relying on cross-origin cookies (e.g. Even simulator on localhost).
+    const separator = returnToBase.includes('?') ? '&' : '?';
+    const redirectTarget = `${returnToBase}${separator}_st=${encodeURIComponent(session.sessionId)}`;
+    console.log(`[smartthings-controls-server] Setting cookie: secure=${cookieOptions.secure} redirectTo=${redirectTarget}`);
     setSessionCookie(response, config.sessionCookieName, session.sessionId, cookieOptions);
-    return redirect(response, normalizeReturnToPath(oauthState.returnTo));
+    return redirect(response, redirectTarget);
   } catch (err) {
     return sendServerError(response, err);
   }
