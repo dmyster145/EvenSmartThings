@@ -2,7 +2,7 @@
   "package_id": "io.github.dmyster145.smartthingscontrols",
   "edition": "202601",
   "name": "SmartThings Controls",
-  "version": "0.1.0",
+  "version": "1.0.4",
   "min_app_version": "2.0.0",
   "min_sdk_version": "0.0.8",
   "tagline": "SmartThings for your G2 glasses",
@@ -13,7 +13,9 @@
       "name": "network",
       "desc": "Required to reach the SmartThings OAuth backend for session management, access tokens, and executing scene and device commands.",
       "whitelist": [
-        "https://even-smart-things.vercel.app"
+        "https://even-smart-things.vercel.app",
+        "https://api.smartthings.com",
+        "https://auth-global.api.smartthings.com"
       ]
     }
   ],

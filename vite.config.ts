@@ -6,6 +6,7 @@ import { defineConfig, loadEnv } from 'vite';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const apiOrigin = env.SMARTTHINGS_CONTROLS_API_ORIGIN || 'http://127.0.0.1:8787';
+  const publicAppUrl = env.SMARTTHINGS_CONTROLS_PUBLIC_APP_URL || '';
 
   return {
     plugins: [react(), tailwindcss()],
@@ -28,6 +29,9 @@ export default defineConfig(({ mode }) => {
           changeOrigin: false,
         },
       },
+    },
+    define: {
+      __API_BASE_URL__: JSON.stringify(publicAppUrl),
     },
     build: {
       target: 'es2022',

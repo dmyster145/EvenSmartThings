@@ -1,6 +1,8 @@
 import { URL } from 'node:url';
 import {
+  applyCors,
   clearSessionCookie,
+  handlePreflightIfNeeded,
   json,
   makeOpaqueId,
   methodNotAllowed,
@@ -247,6 +249,8 @@ export async function handleHealthRequest(request, response) {
 
 export async function handleSessionRequest(request, response) {
   try {
+    if (handlePreflightIfNeeded(response, request, config.publicAppUrl)) return;
+    applyCors(response, request, config.publicAppUrl);
     const url = new URL(request.url ?? '/', getRequestOrigin(request));
 
     if (request.method === 'GET') {
@@ -280,6 +284,8 @@ export async function handleSessionRequest(request, response) {
 
 export async function handleSessionLogoutRequest(request, response) {
   try {
+    if (handlePreflightIfNeeded(response, request, config.publicAppUrl)) return;
+    applyCors(response, request, config.publicAppUrl);
     if (request.method !== 'POST') return methodNotAllowed(response, ['POST']);
     const cookies = parseCookies(request);
     await store.deleteSession(cookies[config.sessionCookieName]);
@@ -292,6 +298,8 @@ export async function handleSessionLogoutRequest(request, response) {
 
 export async function handleAccessTokenRequest(request, response) {
   try {
+    if (handlePreflightIfNeeded(response, request, config.publicAppUrl)) return;
+    applyCors(response, request, config.publicAppUrl);
     if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);
     const session = await getAuthenticatedSession(request);
     if (!session) {
@@ -314,6 +322,8 @@ export async function handleAccessTokenRequest(request, response) {
 
 export async function handleSmartThingsExecuteRequest(request, response) {
   try {
+    if (handlePreflightIfNeeded(response, request, config.publicAppUrl)) return;
+    applyCors(response, request, config.publicAppUrl);
     if (request.method !== 'POST') return methodNotAllowed(response, ['POST']);
     const session = await getAuthenticatedSession(request);
     if (!session) {

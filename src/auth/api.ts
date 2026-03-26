@@ -38,6 +38,10 @@ export type SmartThingsBatchRelayResponse = {
   results: SmartThingsBatchRelayResult[];
 };
 
+declare const __API_BASE_URL__: string;
+const API_BASE: string =
+  typeof __API_BASE_URL__ !== 'undefined' && __API_BASE_URL__ ? __API_BASE_URL__ : '';
+
 export const SMARTTHINGS_DEBUG_EVENT = 'smartthings-controls:debug';
 
 type DeviceCommandPayload = {
@@ -124,7 +128,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function getSessionStatus(): Promise<SessionStatus> {
-  const response = await fetch('/api/session', {
+  const response = await fetch(`${API_BASE}/api/session`, {
     credentials: 'include',
     headers: { Accept: 'application/json' },
   });
@@ -132,7 +136,7 @@ export async function getSessionStatus(): Promise<SessionStatus> {
 }
 
 export async function getSmartThingsAccessToken(): Promise<AccessTokenResponse> {
-  const response = await fetch('/api/smartthings/access-token', {
+  const response = await fetch(`${API_BASE}/api/smartthings/access-token`, {
     credentials: 'include',
     headers: { Accept: 'application/json' },
   });
@@ -140,7 +144,7 @@ export async function getSmartThingsAccessToken(): Promise<AccessTokenResponse> 
 }
 
 export async function disconnectSmartThings(): Promise<void> {
-  const response = await fetch('/api/session/logout', {
+  const response = await fetch(`${API_BASE}/api/session/logout`, {
     method: 'POST',
     credentials: 'include',
     headers: { Accept: 'application/json' },
@@ -154,7 +158,7 @@ async function executeSmartThingsRelayRequest<T>(body: Record<string, unknown>):
   emitSmartThingsDebug(
     `Relay fetch dispatch: requestId=${envelope.requestId} ${summary} visibility=${getVisibilityState()}`
   );
-  const response = await fetch('/api/smartthings/execute', {
+  const response = await fetch(`${API_BASE}/api/smartthings/execute`, {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -192,7 +196,7 @@ function sendSmartThingsBeacon(body: Record<string, unknown>): boolean {
   const envelope = createRelayEnvelope(body, 'beacon');
   const summary = summarizeRelayPayload(envelope.body);
   const payload = new Blob([JSON.stringify(envelope.body)], { type: 'application/json' });
-  const accepted = navigator.sendBeacon('/api/smartthings/execute', payload);
+  const accepted = navigator.sendBeacon(`${API_BASE}/api/smartthings/execute`, payload);
   emitSmartThingsDebug(
     `Relay beacon ${accepted ? 'accepted' : 'rejected'}: requestId=${envelope.requestId} ${summary} visibility=${getVisibilityState()}`,
     !accepted
@@ -258,5 +262,5 @@ export async function executeBatchDeviceCommandsViaServer(
 export function startSmartThingsConnect(returnTo?: string): void {
   const fallbackReturnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const nextReturnTo = returnTo || fallbackReturnTo || '/';
-  window.location.assign(`/api/auth/smartthings/start?return_to=${encodeURIComponent(nextReturnTo)}`);
+  window.location.assign(`${API_BASE}/api/auth/smartthings/start?return_to=${encodeURIComponent(nextReturnTo)}`);
 }
