@@ -1122,21 +1122,9 @@ export async function initApp(): Promise<void> {
     return composeTextModeStatsContent(store.getState());
   }
 
-  async function updateTextModePage(reason: string): Promise<boolean> {
-    const listOk = await hub.updateText(
-      CONTAINER_ID_BOOT_LIST,
-      CONTAINER_NAME_BOOT_LIST,
-      getTextModeListContent()
-    );
-    const statsOk = await hub.updateText(
-      CONTAINER_ID_STATS,
-      CONTAINER_NAME_STATS,
-      getTextModeStatsContent()
-    );
-    if (!listOk || !statsOk) {
-      appendDebugLog(`Text-mode page update failed (${reason}).`, true);
-      return false;
-    }
+  function updateTextModePage(_reason: string): boolean {
+    hub.updateText(CONTAINER_ID_BOOT_LIST, CONTAINER_NAME_BOOT_LIST, getTextModeListContent());
+    hub.updateText(CONTAINER_ID_STATS, CONTAINER_NAME_STATS, getTextModeStatsContent());
     return true;
   }
 
@@ -1173,6 +1161,7 @@ export async function initApp(): Promise<void> {
         appendDebugLog(`Glasses page rebuild succeeded with rich layout (${reason}).`);
       }
       glassesLayoutMode = 'rich';
+      hub.resetImageDirtyTracking();
       return true;
     }
 
@@ -1183,6 +1172,7 @@ export async function initApp(): Promise<void> {
         appendDebugLog('Recovered with list-only glasses layout.');
       }
       glassesLayoutMode = 'list';
+      hub.resetImageDirtyTracking();
       return true;
     }
 
@@ -1195,6 +1185,7 @@ export async function initApp(): Promise<void> {
         appendDebugLog('Recovered with text-only glasses fallback layout.');
       }
       glassesLayoutMode = 'text';
+      hub.resetImageDirtyTracking();
       return true;
     }
 
@@ -1214,10 +1205,7 @@ export async function initApp(): Promise<void> {
   if (startupResult.success && useRealGlasses) {
     glassesLayoutMode = 'text';
     appendDebugLog('Using fixed text glasses layout for real-device compatibility.');
-    const textReady = await updateTextModePage('post-startup text layout');
-    if (!textReady) {
-      authUI.setConnectionStatus('Connected, but the text-mode glasses UI failed to update. Open the runtime console on your phone.');
-    }
+    updateTextModePage('post-startup text layout');
   } else if (startupResult.success) {
     const rebuilt = await rebuildFullPage('post-startup full layout');
     if (!rebuilt) {
@@ -2275,11 +2263,9 @@ export async function initApp(): Promise<void> {
 
     if (useRealGlasses) {
       glassesLayoutMode = 'text';
-      const textSynced = await updateTextModePage(`${reason} text refresh`);
-      if (textSynced) {
-        await pushInitialImages();
-        return true;
-      }
+      updateTextModePage(`${reason} text refresh`);
+      await pushInitialImages();
+      return true;
     } else {
       const rebuilt = await rebuildFullPage(`${reason} rebuild`);
       if (rebuilt) {
@@ -2306,11 +2292,9 @@ export async function initApp(): Promise<void> {
 
     if (useRealGlasses) {
       glassesLayoutMode = 'text';
-      const textSynced = await updateTextModePage(`${reason} post-startup text refresh`);
-      if (textSynced) {
-        await pushInitialImages();
-      }
-      return textSynced;
+      updateTextModePage(`${reason} post-startup text refresh`);
+      await pushInitialImages();
+      return true;
     }
 
     const rebuilt = await rebuildFullPage(`${reason} post-startup rebuild`);

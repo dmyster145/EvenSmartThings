@@ -24,14 +24,67 @@ export type SetupPageResult = {
   code: StartUpPageCreateResult | null;
 };
 
+// ── Tuning constants ──────────────────────────────────────────────────────────
+
+/** How long to wait before retrying blocked text sends after the image link clears. */
+const TEXT_GATE_RETRY_MS = 500;
+/** Maximum image queue depth before the oldest entry is dropped. */
+const IMAGE_QUEUE_MAX = 4;
+/** Average send duration (ms) over the last N sends that triggers "link slow". */
+const LINK_SLOW_THRESHOLD_MS = 800;
+/** Rolling window size for link-health averaging. */
+const LINK_SLOW_SAMPLE_SIZE = 3;
+
+// ── Internal types ────────────────────────────────────────────────────────────
+
+interface TextQueueEntry {
+  key: string;
+  containerID: number;
+  containerName: string;
+  content: string;
+  enqueuedAtMs: number;
+}
+
+/** Cheap fingerprint for image dirty-checking — avoids storing full buffers. */
+interface ImageFingerprint {
+  length: number;
+  first: number;
+  last: number;
+}
+
+// ── Bridge class ──────────────────────────────────────────────────────────────
+
 export class EvenHubBridge {
   private bridge: EvenAppBridgeType | null = null;
+
+  // ── Image queue ──────────────────────────────────────────────────────────
   private imageQueue: ImageRawDataUpdate[] = [];
   private isSendingImage = false;
+
+  // ── Image link health ────────────────────────────────────────────────────
+  /** True when recent average BLE send duration exceeds LINK_SLOW_THRESHOLD_MS. */
+  private imageLinkSlow = false;
+  private recentSendDurations: number[] = [];
+
+  // ── Image dirty tracking ─────────────────────────────────────────────────
+  /** Per-container fingerprint of the last successfully sent image. */
+  private lastSentImageByContainer: Map<number, ImageFingerprint> = new Map();
+
+  // ── Text queue / gate ────────────────────────────────────────────────────
+  private textResumeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Keyed by String(containerID) — Map preserves insertion order for FIFO drain. */
+  private textQueue: Map<string, TextQueueEntry> = new Map();
+  private isSendingText = false;
+  /** Last successfully sent content per container key — prevents redundant sends. */
+  private lastSentTextByKey: Map<string, string> = new Map();
+
+  // ── Event subscriptions ──────────────────────────────────────────────────
   private unsubscribeEvents: (() => void) | null = null;
   private unsubscribeLaunchSource: (() => void) | null = null;
   private launchSource: LaunchSource | null = null;
   private launchSourceHandlers = new Set<LaunchSourceHandler>();
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   /** @param timeoutMs If the bridge is not ready after this many ms, treat as no bridge (e.g. in a normal browser). Use a longer default so the Even App WebView has time to inject the bridge. */
   async init(timeoutMs: number = 10000): Promise<void> {
@@ -87,6 +140,8 @@ export class EvenHubBridge {
     };
   }
 
+  // ── Device info ───────────────────────────────────────────────────────────
+
   /** Real glasses (G1/G2) may need raw image data; simulator decodes PNG. */
   async getDeviceInfo(): Promise<DeviceInfo | null> {
     if (!this.bridge) return null;
@@ -101,6 +156,8 @@ export class EvenHubBridge {
     if (!device) return false;
     return device.model === DeviceModel.G1 || device.model === DeviceModel.G2;
   }
+
+  // ── Local storage ─────────────────────────────────────────────────────────
 
   async getLocalStorage(key: string): Promise<string> {
     if (!this.bridge) return '';
@@ -121,6 +178,8 @@ export class EvenHubBridge {
       return false;
     }
   }
+
+  // ── Page lifecycle ────────────────────────────────────────────────────────
 
   async setupPage(container: CreateStartUpPageContainer): Promise<SetupPageResult> {
     if (!this.bridge) {
@@ -159,26 +218,98 @@ export class EvenHubBridge {
     }
   }
 
-  async updateText(containerID: number, containerName: string, content: string): Promise<boolean> {
-    if (!this.bridge) return false;
+  // ── Text updates (queued + gated) ─────────────────────────────────────────
 
-    try {
-      return await this.bridge.textContainerUpgrade(
-        new TextContainerUpgrade({
-          containerID,
-          containerName,
-          content,
-        }),
-      );
-    } catch (err) {
-      console.error('[EvenHubBridge] textContainerUpgrade error:', err);
-      return false;
-    }
+  /**
+   * Enqueue a text container update.
+   * Updates for the same container coalesce — only the newest content is sent.
+   * Sends are gated when the BLE image link is under pressure (imageLinkSlow).
+   */
+  updateText(containerID: number, containerName: string, content: string): void {
+    if (!this.bridge) return;
+
+    const key = String(containerID);
+    this.textQueue.set(key, {
+      key,
+      containerID,
+      containerName,
+      content,
+      enqueuedAtMs: Date.now(),
+    });
+    void this.processTextQueue();
   }
 
+  private async processTextQueue(): Promise<void> {
+    if (this.isSendingText || !this.bridge) return;
+
+    // Cancel any pending gate retry; we'll reschedule below if still blocked.
+    if (this.textResumeTimer !== null) {
+      clearTimeout(this.textResumeTimer);
+      this.textResumeTimer = null;
+    }
+
+    this.isSendingText = true;
+
+    while (this.textQueue.size > 0) {
+      // ── Link health gate ──────────────────────────────────────────────────
+      // Gate on imageLinkSlow alone — do NOT require a separate survival-mode
+      // flag, which was a sibling-project bug that allowed text to overtake
+      // images under moderate link pressure.
+      if (this.imageLinkSlow) {
+        this.textResumeTimer = setTimeout(() => {
+          this.textResumeTimer = null;
+          void this.processTextQueue();
+        }, TEXT_GATE_RETRY_MS);
+        break;
+      }
+
+      // ── Dequeue next entry (FIFO via Map insertion order) ─────────────────
+      const iter = this.textQueue.entries().next();
+      if (iter.done) break;
+      const [key, entry] = iter.value as [string, TextQueueEntry];
+      this.textQueue.delete(key);
+
+      // ── Deduplication: skip if content hasn't changed ─────────────────────
+      if (this.lastSentTextByKey.get(key) === entry.content) continue;
+
+      try {
+        await this.bridge.textContainerUpgrade(
+          new TextContainerUpgrade({
+            containerID: entry.containerID,
+            containerName: entry.containerName,
+            content: entry.content,
+          }),
+        );
+        this.lastSentTextByKey.set(key, entry.content);
+      } catch (err) {
+        console.error('[EvenHubBridge] textContainerUpgrade error:', err);
+      }
+    }
+
+    this.isSendingText = false;
+  }
+
+  // ── Image updates (coalesced + dirty-checked) ─────────────────────────────
+
+  /**
+   * Enqueue an image update.
+   * - Coalesces: replaces an existing queued entry for the same container.
+   * - Caps: drops the oldest entry if the queue exceeds IMAGE_QUEUE_MAX.
+   * - Dirty-checks: skips sending if bytes are identical to last successful send.
+   */
   async updateBoardImage(data: ImageRawDataUpdate): Promise<void> {
-    this.imageQueue.push(data);
-    await this.processImageQueue();
+    const existingIdx = this.imageQueue.findIndex(item => item.containerID === data.containerID);
+    if (existingIdx >= 0) {
+      // Coalesce: replace in-place so queue length stays constant.
+      this.imageQueue[existingIdx] = data;
+    } else {
+      if (this.imageQueue.length >= IMAGE_QUEUE_MAX) {
+        // Drop the oldest entry to prevent unbounded growth.
+        this.imageQueue.shift();
+      }
+      this.imageQueue.push(data);
+    }
+    void this.processImageQueue();
   }
 
   private async processImageQueue(): Promise<void> {
@@ -187,18 +318,88 @@ export class EvenHubBridge {
 
     while (this.imageQueue.length > 0) {
       const data = this.imageQueue.shift()!;
+
+      // Skip send if image content is identical to what was last sent.
+      if (!this.imageDataChanged(data.containerID, data)) continue;
+
+      const startMs = Date.now();
       try {
         const result = await this.bridge.updateImageRawData(data);
         if (!ImageRawDataUpdateResult.isSuccess(result)) {
           console.warn('[EvenHubBridge] Image update not successful:', result);
+        } else {
+          this.updateImageFingerprint(data);
+          this.recordSendDuration(Date.now() - startMs);
         }
       } catch (err) {
         console.error('[EvenHubBridge] Image update error:', err);
       }
     }
 
+    // Queue drained — link pressure resolved; reset slow flag.
+    this.imageLinkSlow = false;
+    this.recentSendDurations = [];
     this.isSendingImage = false;
   }
+
+  // ── Image dirty tracking helpers ──────────────────────────────────────────
+
+  private imageDataChanged(containerID: number | undefined, data: ImageRawDataUpdate): boolean {
+    if (containerID === undefined) return true;
+    const prev = this.lastSentImageByContainer.get(containerID);
+    if (!prev) return true;
+    const fp = this.buildFingerprint(data);
+    if (!fp) return true;
+    return prev.length !== fp.length || prev.first !== fp.first || prev.last !== fp.last;
+  }
+
+  private updateImageFingerprint(data: ImageRawDataUpdate): void {
+    const containerID = data.containerID;
+    if (containerID === undefined) return;
+    const fp = this.buildFingerprint(data);
+    if (fp) this.lastSentImageByContainer.set(containerID, fp);
+  }
+
+  private buildFingerprint(data: ImageRawDataUpdate): ImageFingerprint | null {
+    const imageData = data.imageData;
+    if (Array.isArray(imageData)) {
+      const arr = imageData as number[];
+      const first = arr[0];
+      const last = arr[arr.length - 1];
+      return { length: arr.length, first: first ?? -1, last: last ?? -1 };
+    }
+    if (typeof imageData === 'string') {
+      return {
+        length: imageData.length,
+        first: imageData.length > 0 ? imageData.charCodeAt(0) : -1,
+        last: imageData.length > 0 ? imageData.charCodeAt(imageData.length - 1) : -1,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Reset per-container image fingerprints.
+   * Call after a full page rebuild so the next image send is never suppressed.
+   */
+  resetImageDirtyTracking(): void {
+    this.lastSentImageByContainer.clear();
+  }
+
+  // ── Link health tracking ──────────────────────────────────────────────────
+
+  private recordSendDuration(durationMs: number): void {
+    this.recentSendDurations.push(durationMs);
+    if (this.recentSendDurations.length > LINK_SLOW_SAMPLE_SIZE) {
+      this.recentSendDurations.shift();
+    }
+    if (this.recentSendDurations.length === LINK_SLOW_SAMPLE_SIZE) {
+      const avg = this.recentSendDurations.reduce((a: number, b: number) => a + b, 0) / LINK_SLOW_SAMPLE_SIZE;
+      this.imageLinkSlow = avg > LINK_SLOW_THRESHOLD_MS;
+    }
+  }
+
+  // ── Event subscription ────────────────────────────────────────────────────
 
   subscribeEvents(handler: EvenHubEventHandler): void {
     this.unsubscribeEvents?.();
@@ -218,12 +419,19 @@ export class EvenHubBridge {
     }
   }
 
+  // ── Shutdown ──────────────────────────────────────────────────────────────
+
   async shutdown(): Promise<void> {
     this.unsubscribeEvents?.();
     this.unsubscribeEvents = null;
     this.unsubscribeLaunchSource?.();
     this.unsubscribeLaunchSource = null;
     this.launchSourceHandlers.clear();
+
+    if (this.textResumeTimer !== null) {
+      clearTimeout(this.textResumeTimer);
+      this.textResumeTimer = null;
+    }
 
     if (this.bridge) {
       try {

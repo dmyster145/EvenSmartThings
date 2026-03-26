@@ -5,6 +5,23 @@
  */
 
 import { CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT } from '../state/constants';
+
+// ── Canvas pool ───────────────────────────────────────────────────────────────
+// Reuse canvas elements keyed by "${w}x${h}" to avoid repeated allocation of
+// canvas + ImageData + output buffers on every render call.
+const canvasPool = new Map<string, HTMLCanvasElement>();
+
+function getPooledCanvas(w: number, h: number): HTMLCanvasElement {
+  const key = `${w}x${h}`;
+  let canvas = canvasPool.get(key);
+  if (!canvas) {
+    canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvasPool.set(key, canvas);
+  }
+  return canvas;
+}
 import {
   BMP_SIGNATURE,
   BMP_DIB_HEADER_SIZE,
@@ -47,9 +64,7 @@ function loadPngAndRaw(
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
+      const canvas = getPooledCanvas(targetWidth, targetHeight);
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         resolve(null);
@@ -147,11 +162,10 @@ function grayToBmp(data: number[], width: number, height: number): number[] {
 
 /** Convert grayscale number[] (0–255) to PNG base64 string for SDK. */
 function grayToPngBase64(data: number[], width: number, height: number): string {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  const canvas = getPooledCanvas(width, height);
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
+  ctx.clearRect(0, 0, width, height);
   const imageData = ctx.createImageData(width, height);
   for (let i = 0; i < data.length; i++) {
     const g = Math.max(0, Math.min(255, data[i] ?? 0));
@@ -258,14 +272,13 @@ export function loadImageAsRawData(
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
+      const canvas = getPooledCanvas(targetWidth, targetHeight);
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         reject(new Error('No 2d context'));
         return;
       }
+      ctx.clearRect(0, 0, targetWidth, targetHeight);
       ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
       const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
       const out: number[] = [];
