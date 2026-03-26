@@ -184,19 +184,6 @@ export async function getSessionStatus(): Promise<SessionStatus> {
   return parseJsonResponse<SessionStatus>(response);
 }
 
-export async function getAuthDebugInfo(): Promise<Record<string, unknown>> {
-  try {
-    const response = await fetch(`${API_BASE}/api/debug/auth`, {
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
-    });
-    const payload = await response.json().catch(() => ({ fetchFailed: true, status: response.status }));
-    return payload as Record<string, unknown>;
-  } catch (err) {
-    return { fetchFailed: true, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
 export async function getSmartThingsAccessToken(): Promise<AccessTokenResponse> {
   const response = await fetch(`${API_BASE}/api/smartthings/access-token`, {
     credentials: 'include',

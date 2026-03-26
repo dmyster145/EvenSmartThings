@@ -540,8 +540,8 @@ export function ConfigShell(): ReactElement {
           <SurfaceCard>
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-[6px] bg-accent-alpha text-text">
-                  <IcMenuHome width={22} height={22} />
+                <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[6px] bg-accent-alpha">
+                  <img src="/smartthings.png" alt="SmartThings" className="h-6 w-6 object-contain" />
                 </span>
                 <div>
                   <p className="text-[11px] tracking-[-0.11px] uppercase text-text-dim">Connection Setup</p>

@@ -65,7 +65,6 @@ import {
   executeBatchDeviceCommandsViaServer,
   executeDeviceCommandViaServer,
   executeSceneViaServer,
-  getAuthDebugInfo,
   getSessionStatus,
   getSmartThingsAccessToken,
   SMARTTHINGS_DEBUG_EVENT,
@@ -928,10 +927,6 @@ export async function initApp(): Promise<void> {
   } catch (err) {
     console.warn('[SmartThingsControls] getSessionStatus error:', err);
     appendDebugLog(`Session status failed: ${getErrorMessage(err)}`, true);
-    // Fetch debug info to help diagnose the failure — logged automatically.
-    getAuthDebugInfo().then((info) => {
-      appendDebugLog(`Auth debug: ${JSON.stringify(info)}`);
-    }).catch(() => {});
     authUI.showConnectPanel(AUTH_SERVICE_UNAVAILABLE_MESSAGE, false);
     return;
   }
