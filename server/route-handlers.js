@@ -52,7 +52,13 @@ function isTrustedReturnToUrl(url) {
   try {
     const parsed = new URL(url);
     if (parsed.origin === config.publicAppUrl) return true;
+    // Loopback
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(parsed.origin)) return true;
+    // RFC 1918 private / LAN addresses (http only — dev servers won't have TLS certs).
+    // Covers 192.168.x.x, 10.x.x.x, 172.16–31.x.x, and 169.254.x.x link-local.
+    // Allows QR-code / phone testing against a local Vite dev server without
+    // needing a per-machine env var that changes on every network switch.
+    if (/^http:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(parsed.origin)) return true;
     return false;
   } catch {
     return false;

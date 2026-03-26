@@ -72,6 +72,7 @@ export function setSessionCookie(response, name, value, options = {}) {
  *   - The configured publicAppUrl (Vercel production)
  *   - Any localhost / 127.0.0.1 origin (local development)
  *   - The string "null" emitted by packaged webviews (.ehpk / file://)
+ *   - RFC 1918 private / LAN addresses over http:// (QR-code / phone dev testing)
  */
 export function getCorsOrigin(request, publicAppUrl) {
   const origin = request.headers.origin;
@@ -79,6 +80,8 @@ export function getCorsOrigin(request, publicAppUrl) {
   if (origin === 'null') return 'null'; // packaged Even G2 webview
   if (origin === publicAppUrl) return origin;
   if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
+  // Allow LAN / private IPs so phones can reach the API during local dev (http only).
+  if (/^http:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(origin)) return origin;
   return null;
 }
 
