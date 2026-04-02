@@ -43,6 +43,7 @@ const API_BASE: string =
   typeof __API_BASE_URL__ !== 'undefined' && __API_BASE_URL__ ? __API_BASE_URL__ : '';
 
 const SESSION_TOKEN_STORAGE_KEY = 'smartthings_controls_bearer_session';
+const PENDING_AUTH_STORAGE_KEY = 'smartthings_controls_pending_auth';
 
 export function readStoredSessionToken(): string | null {
   try {
@@ -310,10 +311,74 @@ export async function executeBatchDeviceCommandsViaServer(
   });
 }
 
+function generatePendingAuthId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `pa-${Date.now()}-${Math.random().toString(36).slice(2, 14)}`;
+}
+
 export function startSmartThingsConnect(returnTo?: string): void {
   // Use the full origin URL so the OAuth redirect comes back to this exact origin
   // (important when running from localhost in the Even simulator).
   const fallbackReturnTo = window.location.href.split('#')[0]; // strip hash
   const nextReturnTo = returnTo || fallbackReturnTo || '/';
-  window.location.assign(`${API_BASE}/api/auth/smartthings/start?return_to=${encodeURIComponent(nextReturnTo)}`);
+  // Generate a pending auth ID so we can recover the session if the OAuth flow
+  // breaks out of the WebView (e.g. iOS Universal Links opening SmartThings app).
+  const pendingAuthId = generatePendingAuthId();
+  try {
+    localStorage.setItem(PENDING_AUTH_STORAGE_KEY, pendingAuthId);
+  } catch {
+    // ignore
+  }
+  window.location.assign(
+    `${API_BASE}/api/auth/smartthings/start?return_to=${encodeURIComponent(nextReturnTo)}&pending_auth_id=${encodeURIComponent(pendingAuthId)}`
+  );
+}
+
+/**
+ * Check if there is a pending OAuth flow that completed outside this WebView.
+ * If so, consume the session token and return it. Called on app resume.
+ */
+export async function checkPendingAuth(): Promise<string | null> {
+  let pendingId: string | null = null;
+  try {
+    pendingId = localStorage.getItem(PENDING_AUTH_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  if (!pendingId) return null;
+
+  try {
+    const response = await fetch(
+      `${API_BASE}/api/auth/pending?id=${encodeURIComponent(pendingId)}`,
+      {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      }
+    );
+    if (!response.ok) return null;
+    const data = (await response.json()) as { completed?: boolean; sessionId?: string };
+    if (!data.completed || !data.sessionId) return null;
+
+    // Auth completed externally — store the session token
+    writeStoredSessionToken(data.sessionId);
+    try {
+      localStorage.removeItem(PENDING_AUTH_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    return data.sessionId;
+  } catch {
+    return null;
+  }
+}
+
+/** Clear any pending auth marker (e.g. after normal _st consumption). */
+export function clearPendingAuth(): void {
+  try {
+    localStorage.removeItem(PENDING_AUTH_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
 }

@@ -60,6 +60,8 @@ import {
 } from './state/selectors';
 import { EvenHubBridge } from './evenhub/bridge';
 import {
+  checkPendingAuth,
+  clearPendingAuth,
   consumeSessionTokenFromUrl,
   disconnectSmartThings,
   executeBatchDeviceCommandsViaServer,
@@ -772,6 +774,7 @@ export async function initApp(): Promise<void> {
   const urlSessionToken = consumeSessionTokenFromUrl();
   if (urlSessionToken) {
     console.log('[SmartThingsControls] Session token received from OAuth redirect URL.');
+    clearPendingAuth();
   }
 
   const hub = new EvenHubBridge();
@@ -921,6 +924,15 @@ export async function initApp(): Promise<void> {
   let initialSessionStatus: SessionStatus;
   try {
     initialSessionStatus = await getSessionStatus();
+    // If not authenticated, check if OAuth completed outside this WebView
+    // (e.g. iOS Universal Links opened the SmartThings app → Safari).
+    if (!initialSessionStatus.authenticated && !urlSessionToken) {
+      const pendingToken = await checkPendingAuth();
+      if (pendingToken) {
+        appendDebugLog('Pending auth recovered session from external OAuth flow.');
+        initialSessionStatus = await getSessionStatus();
+      }
+    }
     appendDebugLog(
       `Session status loaded. authenticated=${initialSessionStatus.authenticated} configured=${initialSessionStatus.configured}`
     );
@@ -2332,7 +2344,16 @@ export async function initApp(): Promise<void> {
       attachHubEventSubscription(`resume:${reason}`);
 
       try {
-        const sessionStatus = await getSessionStatus();
+        let sessionStatus = await getSessionStatus();
+        // If not authenticated, check if OAuth completed outside this WebView
+        // (e.g. iOS Universal Links opened the SmartThings app → Safari).
+        if (!sessionStatus.authenticated) {
+          const pendingToken = await checkPendingAuth();
+          if (pendingToken) {
+            appendDebugLog(`Pending auth recovered session on resume (${reason}).`);
+            sessionStatus = await getSessionStatus();
+          }
+        }
         appendDebugLog(
           `Resume session status (${reason}). authenticated=${sessionStatus.authenticated} configured=${sessionStatus.configured}`
         );

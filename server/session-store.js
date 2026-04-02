@@ -6,6 +6,7 @@ import { makeOpaqueId } from './http-utils.js';
 const EMPTY_STORE = {
   sessions: {},
   oauthStates: {},
+  pendingAuths: {},
 };
 
 async function loadStore(filePath) {
@@ -15,6 +16,7 @@ async function loadStore(filePath) {
     return {
       sessions: parsed.sessions ?? {},
       oauthStates: parsed.oauthStates ?? {},
+      pendingAuths: parsed.pendingAuths ?? {},
     };
   } catch (err) {
     if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
@@ -50,16 +52,21 @@ function getOauthStateKey(config, stateId) {
   return `${config.redis.keyPrefix}:oauth-state:${stateId}`;
 }
 
+function getPendingAuthKey(config, pendingId) {
+  return `${config.redis.keyPrefix}:pending-auth:${pendingId}`;
+}
+
 class FileSessionStore {
   constructor(config) {
     this.filePath = config.sessionFile;
   }
 
-  async createOAuthState(returnTo) {
+  async createOAuthState(returnTo, pendingAuthId) {
     const stateId = makeOpaqueId();
     const store = await loadStore(this.filePath);
     store.oauthStates[stateId] = {
       returnTo: returnTo || '/',
+      pendingAuthId: pendingAuthId || null,
       createdAt: new Date().toISOString(),
     };
     await saveStore(this.filePath, store);
@@ -121,6 +128,22 @@ class FileSessionStore {
     delete store.sessions[sessionId];
     await saveStore(this.filePath, store);
   }
+
+  async setPendingAuth(pendingId, sessionId) {
+    const store = await loadStore(this.filePath);
+    store.pendingAuths[pendingId] = { sessionId, createdAt: new Date().toISOString() };
+    await saveStore(this.filePath, store);
+  }
+
+  async getPendingAuth(pendingId) {
+    if (!pendingId) return null;
+    const store = await loadStore(this.filePath);
+    const entry = store.pendingAuths[pendingId];
+    if (!entry) return null;
+    delete store.pendingAuths[pendingId];
+    await saveStore(this.filePath, store);
+    return entry.sessionId;
+  }
 }
 
 class UnsupportedSessionStore {
@@ -154,6 +177,14 @@ class UnsupportedSessionStore {
 
   async deleteSession() {
     return;
+  }
+
+  async setPendingAuth() {
+    throw new Error(this.message);
+  }
+
+  async getPendingAuth() {
+    return null;
   }
 }
 
@@ -234,10 +265,11 @@ class RedisSessionStore {
     return payload.result;
   }
 
-  async createOAuthState(returnTo) {
+  async createOAuthState(returnTo, pendingAuthId) {
     const stateId = makeOpaqueId();
     const state = {
       returnTo: returnTo || '/',
+      pendingAuthId: pendingAuthId || null,
       createdAt: new Date().toISOString(),
     };
     await this.runCommand(
@@ -305,6 +337,22 @@ class RedisSessionStore {
   async deleteSession(sessionId) {
     if (!sessionId) return;
     await this.runCommand('DEL', getSessionKey(this.config, sessionId));
+  }
+
+  async setPendingAuth(pendingId, sessionId) {
+    await this.runCommand(
+      'SET',
+      getPendingAuthKey(this.config, pendingId),
+      sessionId,
+      'EX',
+      '300'
+    );
+  }
+
+  async getPendingAuth(pendingId) {
+    if (!pendingId) return null;
+    const raw = await this.runCommand('GETDEL', getPendingAuthKey(this.config, pendingId));
+    return typeof raw === 'string' ? raw : null;
   }
 }
 

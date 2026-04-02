@@ -508,8 +508,32 @@ export async function handleAuthStartRequest(request, response) {
 
     const url = new URL(request.url ?? '/', getRequestOrigin(request));
     const returnTo = normalizeReturnTo(url.searchParams.get('return_to'));
-    const state = await store.createOAuthState(returnTo);
+    const pendingAuthId = url.searchParams.get('pending_auth_id') || null;
+    const state = await store.createOAuthState(returnTo, pendingAuthId);
     return redirect(response, buildAuthorizeUrl(config, state));
+  } catch (err) {
+    return sendServerError(response, err);
+  }
+}
+
+export async function handleAuthPendingRequest(request, response) {
+  try {
+    if (handlePreflightIfNeeded(response, request, config.publicAppUrl)) return;
+    applyCors(response, request, config.publicAppUrl);
+    if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);
+
+    const url = new URL(request.url ?? '/', getRequestOrigin(request));
+    const pendingId = url.searchParams.get('id');
+    if (!pendingId) {
+      return json(response, 400, { error: 'Missing pending auth id' });
+    }
+
+    const sessionId = await store.getPendingAuth(pendingId);
+    if (!sessionId) {
+      return json(response, 200, { completed: false });
+    }
+
+    return json(response, 200, { completed: true, sessionId });
   } catch (err) {
     return sendServerError(response, err);
   }
@@ -539,6 +563,9 @@ export async function handleAuthCallbackRequest(request, response) {
 
     const tokenSet = await exchangeAuthorizationCode(config, code);
     const session = await store.createSession(tokenSet);
+    if (oauthState.pendingAuthId) {
+      await store.setPendingAuth(oauthState.pendingAuthId, session.sessionId);
+    }
     const cookieOptions = getSessionCookieOptions(request);
     const returnToBase = normalizeReturnTo(oauthState.returnTo);
     // Append the session ID as a URL param so cross-origin webviews can pick it up
