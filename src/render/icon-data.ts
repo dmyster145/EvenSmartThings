@@ -62,7 +62,10 @@ function loadPngAndRaw(
 ): Promise<{ png: string; raw: number[] } | null> {
   return new Promise((resolve) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    // No crossOrigin needed — icons are always same-origin (/icons/*.png).
+    // Setting crossOrigin triggers CORS mode, which fails on Vercel CDN because
+    // static assets are served without Access-Control-Allow-Origin headers,
+    // causing onerror to fire and the icon cache to remain null in production.
     img.onload = () => {
       const canvas = getPooledCanvas(targetWidth, targetHeight);
       const ctx = canvas.getContext('2d');
@@ -270,7 +273,8 @@ export function loadImageAsRawData(
 ): Promise<number[]> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    // No crossOrigin — same-origin assets don't need CORS mode and Vercel CDN
+    // does not send Access-Control-Allow-Origin headers for static files.
     img.onload = () => {
       const canvas = getPooledCanvas(targetWidth, targetHeight);
       const ctx = canvas.getContext('2d');
