@@ -66,20 +66,33 @@
     <div class="card">
       <div class="icon">✓</div>
       <h1>Authorization Complete</h1>
-      <p>SmartThings is connected. Tap <strong style="color:#f0f0f0;">Refresh</strong> below to finish setup.</p>
-      <span class="badge">Connected</span>
-      <br/>
-      <button class="btn" onclick="window.location.assign('/')">Refresh</button>
+      <p id="auth-message">SmartThings is connected. Return to the Even app and tap <strong style="color:#f0f0f0;">Refresh</strong> to finish setup.</p>
+      <span class="badge" id="auth-badge">Done — return to Even app</span>
+      <button class="btn" id="refresh-btn" style="display:none" onclick="window.location.assign('/')">Refresh</button>
     </div>
     <script>
       (function () {
-        // Store the session token in localStorage so the Even app can pick it up
-        // via checkPendingAuth() when the user taps Refresh.
         try {
           var params = new URLSearchParams(window.location.search);
           var st = params.get('_st');
           if (st) {
             localStorage.setItem('smartthings_controls_bearer_session', st);
+          }
+
+          // Detect context: the pendingAuthId is written to localStorage only by the
+          // Even Hub WebView when the user taps "Connect SmartThings". Safari's
+          // localStorage is isolated and will never have this key.
+          // - WebView: show Refresh button so the user can navigate back to the SPA
+          //   (same origin, same localStorage — token is already stored above).
+          // - Safari: show "Return to Even app" only. The Even Hub WebView's own
+          //   Refresh button uses checkPendingAuth() via Redis, which keeps the
+          //   session in the WebView's localStorage where it belongs.
+          var pendingAuthId = localStorage.getItem('smartthings_controls_pending_auth');
+          if (pendingAuthId) {
+            document.getElementById('refresh-btn').style.display = 'block';
+            document.getElementById('auth-message').innerHTML =
+              'SmartThings is connected. Tap <strong style="color:#f0f0f0;">Refresh</strong> below to finish setup.';
+            document.getElementById('auth-badge').textContent = 'Connected';
           }
         } catch (e) { /* ignore */ }
       })();
