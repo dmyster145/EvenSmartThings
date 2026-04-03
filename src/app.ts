@@ -663,13 +663,17 @@ function setupConfigUI(
   }
 }
 
+const AUTH_RETURN_ID = 'auth-return';
+
 function showPanel(id: string): void {
   const config = document.getElementById(CONFIG_PANEL_ID);
   const openInEven = document.getElementById(OPEN_IN_EVEN_ID);
   const glassesActive = document.getElementById(GLASSES_ACTIVE_ID);
+  const authReturn = document.getElementById(AUTH_RETURN_ID);
   if (config) config.style.display = id === CONFIG_PANEL_ID ? 'block' : 'none';
   if (openInEven) openInEven.style.display = id === OPEN_IN_EVEN_ID ? 'block' : 'none';
   if (glassesActive) glassesActive.style.display = id === GLASSES_ACTIVE_ID ? 'block' : 'none';
+  if (authReturn) authReturn.style.display = id === AUTH_RETURN_ID ? 'block' : 'none';
 }
 
 function showGlassesActive(): void {
@@ -939,8 +943,17 @@ export async function initApp(): Promise<void> {
   }
 
   if (!hub.hasBridge()) {
-    appendDebugLog('No Even bridge available in this webview.');
-    showPanel(OPEN_IN_EVEN_ID);
+    // Check if the user just completed OAuth outside the Even WebView (e.g. iOS Universal Links).
+    // If a pending auth ID exists, they were mid-flow — show the "return to Even app" panel.
+    let pendingAuthId: string | null = null;
+    try { pendingAuthId = localStorage.getItem('smartthings_controls_pending_auth'); } catch { /* ignore */ }
+    if (pendingAuthId) {
+      appendDebugLog('No bridge — pending auth found. Showing auth-return panel.');
+      showPanel(AUTH_RETURN_ID);
+    } else {
+      appendDebugLog('No Even bridge available in this webview.');
+      showPanel(OPEN_IN_EVEN_ID);
+    }
     return;
   }
 

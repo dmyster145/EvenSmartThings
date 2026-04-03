@@ -497,6 +497,26 @@ export function ConfigShell(): ReactElement {
   return (
     <AppShell className="bg-bg" header={<div />}>
       <Page className="mx-auto w-full max-w-[760px] px-3 pb-12 pt-4">
+        <section id="auth-return" className="pb-6" style={{ display: 'none' }}>
+          <SurfaceCard>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[6px] bg-accent-alpha">
+                  <img src="/smartthings.png" alt="SmartThings" className="h-6 w-6 object-contain" />
+                </span>
+                <div>
+                  <p className="text-[11px] tracking-[-0.11px] uppercase text-text-dim">Authorization Complete</p>
+                  <h1 className="text-[20px] tracking-[-0.6px] font-normal text-text">Return to Even App</h1>
+                </div>
+              </div>
+              <Badge variant="positive">Connected</Badge>
+            </div>
+            <p className="mt-3 text-[15px] tracking-[-0.15px] text-text-dim">
+              SmartThings is connected. Switch back to the Even app and tap <strong className="text-text">Refresh</strong> to finish setup.
+            </p>
+          </SurfaceCard>
+        </section>
+
         <section id="open-in-even" className="pb-6">
           <SurfaceCard>
             <div className="flex items-start justify-between gap-3">
