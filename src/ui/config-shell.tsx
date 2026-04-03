@@ -486,22 +486,6 @@ function ConnectionTab(): ReactElement {
         <p className="text-[15px] tracking-[-0.15px] text-text">
           Keep the runtime console off during normal use. Turn it on only when you need to capture phone-side logs for troubleshooting.
         </p>
-        <div className="btn-group mt-4">
-          <Button id="toggle-debug-btn" type="button" variant="secondary">
-            Enable debug console
-          </Button>
-        </div>
-        <div id="debug-log-container" className="debug-console-panel mt-4" style={{ display: 'none' }}>
-          <div className="btn-group">
-            <Button id="copy-debug-log-btn" type="button" variant="secondary" size="sm">
-              Copy log
-            </Button>
-            <Button id="clear-debug-log-btn" type="button" variant="secondary" size="sm">
-              Clear log
-            </Button>
-          </div>
-          <pre id="debug-log" className="debug-console-output" aria-live="polite" />
-        </div>
       </SurfaceCard>
     </>
   );
@@ -578,6 +562,24 @@ export function ConfigShell(): ReactElement {
             <ConnectionTab />
           </div>
         </section>
+
+        <div className="mt-4">
+          <Button id="toggle-debug-btn" type="button" variant="secondary">
+            Enable debug console
+          </Button>
+        </div>
+
+        <div id="debug-log-container" className="debug-console-panel mt-4" style={{ display: 'none' }}>
+          <div className="btn-group">
+            <Button id="copy-debug-log-btn" type="button" variant="secondary" size="sm">
+              Copy log
+            </Button>
+            <Button id="clear-debug-log-btn" type="button" variant="secondary" size="sm">
+              Clear log
+            </Button>
+          </div>
+          <pre id="debug-log" className="debug-console-output" aria-live="polite" />
+        </div>
 
         <div id="config-toast" className="toast" role="status" aria-live="polite" style={{ display: 'none' }} />
       </Page>

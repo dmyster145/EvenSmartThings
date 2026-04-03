@@ -927,9 +927,7 @@ export async function initApp(): Promise<void> {
 
   const authUI = setupAuthUI();
 
-  // Always show debug console on the connect panel so diagnostics are visible.
   function showConnectPanelWithDebug(message: string, canConnect?: boolean): void {
-    setDebugVisible(true);
     authUI.showConnectPanel(message, canConnect);
   }
 
