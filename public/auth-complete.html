@@ -47,14 +47,29 @@
         padding: 4px 12px;
         border-radius: 20px;
       }
+      .btn {
+        display: inline-block;
+        margin-top: 20px;
+        background: #f0f0f0;
+        color: #0f0f0f;
+        font-size: 15px;
+        font-weight: 600;
+        padding: 12px 28px;
+        border-radius: 10px;
+        border: none;
+        cursor: pointer;
+        width: 100%;
+      }
     </style>
   </head>
   <body>
     <div class="card">
       <div class="icon">✓</div>
       <h1>Authorization Complete</h1>
-      <p>SmartThings is connected. Return to the Even app and tap <strong style="color:#f0f0f0;">Refresh</strong> to finish setup.</p>
-      <span class="badge">Done — return to Even app</span>
+      <p>SmartThings is connected. Tap <strong style="color:#f0f0f0;">Refresh</strong> below to finish setup.</p>
+      <span class="badge">Connected</span>
+      <br/>
+      <button class="btn" onclick="window.location.assign('/')">Refresh</button>
     </div>
     <script>
       (function () {
