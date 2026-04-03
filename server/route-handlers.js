@@ -553,7 +553,12 @@ export async function handleAuthCallbackRequest(request, response) {
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
     if (!code || !state) {
-      return json(response, 400, { error: 'Missing code or state' });
+      // No code/state — user likely denied/cancelled the SmartThings authorization,
+      // or the callback was hit without OAuth params (e.g. a bare prefetch).
+      // Redirect to auth-complete.html so the user sees a friendly page instead
+      // of a raw JSON error.
+      const fallbackUrl = `${config.publicAppUrl}/auth-complete.html`;
+      return redirect(response, fallbackUrl);
     }
 
     const oauthState = await store.consumeOAuthState(state);
