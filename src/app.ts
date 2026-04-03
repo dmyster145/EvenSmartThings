@@ -936,7 +936,7 @@ export async function initApp(): Promise<void> {
     appendDebugLog(`Bridge initialization complete. bridge=${hub.hasBridge()}`);
   } catch (err) {
     console.warn('[SmartThingsControls] Init error:', err);
-    appendDebugLog(`Bridge init threw: ${getErrorMessage(err)}`, true);
+    appendDebugLog(`Bridge init threw: ${getErrorMessage(err)}`);
     showPanel(OPEN_IN_EVEN_ID);
     return;
   }
@@ -1049,7 +1049,7 @@ export async function initApp(): Promise<void> {
     );
   } catch (err) {
     console.warn('[SmartThingsControls] getSessionStatus error:', err);
-    appendDebugLog(`Session status failed: ${getErrorMessage(err)}`, true);
+    appendDebugLog(`Session status failed: ${getErrorMessage(err)}`);
     showPanel(AUTH_RETURN_ID);
     return;
   }
