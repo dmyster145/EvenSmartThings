@@ -61,12 +61,20 @@
         try {
           var params = new URLSearchParams(window.location.search);
           var st = params.get('_st');
+          var appUrl = params.get('app_url');
+          // If we have the original ehpk URL, navigate back to it with the session token appended.
+          // This keeps the WebView on the ehpk origin (not the Vercel SPA) so the bridge and
+          // API calls work correctly.
+          if (appUrl) {
+            var dest = appUrl + (appUrl.indexOf('?') !== -1 ? '&' : '?') + (st ? '_st=' + encodeURIComponent(st) : '_auth_return=1');
+            window.location.replace(dest);
+            return;
+          }
+          // Fallback: store token in localStorage and stay on this page (user sees "Authorization Complete").
           if (st) {
             localStorage.setItem('smartthings_controls_bearer_session', st);
           }
         } catch (e) { /* ignore */ }
-        // Redirect to the full app — it will authenticate via the stored token.
-        window.location.replace('/');
       })();
     </script>
   </body>
