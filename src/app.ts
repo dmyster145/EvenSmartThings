@@ -6,6 +6,9 @@
  * subscribe events. Tap on list runs scene.
  */
 
+declare const __APP_VERSION__: string;
+const APP_VERSION: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+
 // Deep imports avoid the package barrel, which pulls server-only signature deps (http-signature/sshpk → crypto).
 import { SmartThingsClient } from '@smartthings/core-sdk/dist/st-client';
 import { BearerTokenAuthenticator } from '@smartthings/core-sdk/dist/authenticator';
@@ -825,6 +828,8 @@ export async function initApp(): Promise<void> {
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener(SMARTTHINGS_DEBUG_EVENT, relayDebugHandler as EventListener);
   }
+
+  appendDebugLog(`SmartThings Controls v${APP_VERSION}`);
 
   async function requestWakeLock(reason: string): Promise<void> {
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
