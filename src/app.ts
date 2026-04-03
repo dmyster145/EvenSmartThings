@@ -926,16 +926,34 @@ export async function initApp(): Promise<void> {
   }
 
   const authUI = setupAuthUI();
+
+  // Always show debug console on the connect panel so diagnostics are visible.
+  function showConnectPanelWithDebug(message: string, canConnect?: boolean): void {
+    setDebugVisible(true);
+    authUI.showConnectPanel(message, canConnect);
+  }
+
   let initialSessionStatus: SessionStatus;
   try {
+    appendDebugLog(`Startup: href=${window.location.href}`);
+    appendDebugLog(`Startup: urlSessionToken=${!!urlSessionToken} apiBase=${APP_VERSION !== 'dev' ? typeof __APP_VERSION__ !== 'undefined' ? 'set' : 'unset' : 'dev'}`);
+    let pendingId: string | null = null;
+    try { pendingId = localStorage.getItem('smartthings_controls_pending_auth'); } catch { /* ignore */ }
+    appendDebugLog(`Startup: pendingAuthId=${pendingId ?? 'none'}`);
+
     initialSessionStatus = await getSessionStatus();
+    appendDebugLog(`Session check: authenticated=${initialSessionStatus.authenticated} configured=${initialSessionStatus.configured}`);
+
     // If not authenticated, check if OAuth completed outside this WebView
     // (e.g. iOS Universal Links opened the SmartThings app → Safari).
     if (!initialSessionStatus.authenticated && !urlSessionToken) {
+      appendDebugLog(`Pending auth check starting: id=${pendingId ?? 'none'}`);
       const pendingToken = await checkPendingAuth();
+      appendDebugLog(`Pending auth result: token=${pendingToken ? 'recovered' : 'none'}`);
       if (pendingToken) {
         appendDebugLog('Pending auth recovered session from external OAuth flow.');
         initialSessionStatus = await getSessionStatus();
+        appendDebugLog(`Post-recovery session: authenticated=${initialSessionStatus.authenticated}`);
       }
     }
     appendDebugLog(
@@ -944,12 +962,12 @@ export async function initApp(): Promise<void> {
   } catch (err) {
     console.warn('[SmartThingsControls] getSessionStatus error:', err);
     appendDebugLog(`Session status failed: ${getErrorMessage(err)}`, true);
-    authUI.showConnectPanel(AUTH_SERVICE_UNAVAILABLE_MESSAGE, false);
+    showConnectPanelWithDebug(AUTH_SERVICE_UNAVAILABLE_MESSAGE, false);
     return;
   }
 
   if (!initialSessionStatus.authenticated) {
-    authUI.showConnectPanel(
+    showConnectPanelWithDebug(
       initialSessionStatus.configured ? AUTH_DISCONNECTED_MESSAGE : AUTH_CONFIG_MISSING_MESSAGE,
       initialSessionStatus.configured
     );
@@ -989,7 +1007,7 @@ export async function initApp(): Promise<void> {
     await disconnectSmartThings().catch(() => undefined);
     store.dispatch({ type: 'AUTH_EXPIRED', message: AUTH_RECONNECT_MESSAGE });
     refreshPage();
-    authUI.showConnectPanel(AUTH_RECONNECT_MESSAGE);
+    showConnectPanelWithDebug(AUTH_RECONNECT_MESSAGE);
     return true;
   }
 
@@ -2349,21 +2367,28 @@ export async function initApp(): Promise<void> {
       attachHubEventSubscription(`resume:${reason}`);
 
       try {
+        let resumePendingId: string | null = null;
+        try { resumePendingId = localStorage.getItem('smartthings_controls_pending_auth'); } catch { /* ignore */ }
+        appendDebugLog(`Resume check (${reason}): pendingId=${resumePendingId ?? 'none'}`);
         let sessionStatus = await getSessionStatus();
+        appendDebugLog(`Resume session (${reason}): authenticated=${sessionStatus.authenticated}`);
         // If not authenticated, check if OAuth completed outside this WebView
         // (e.g. iOS Universal Links opened the SmartThings app → Safari).
         if (!sessionStatus.authenticated) {
+          appendDebugLog(`Resume: not authenticated, checking pending auth (${reason}).`);
           const pendingToken = await checkPendingAuth();
+          appendDebugLog(`Resume pending auth result (${reason}): token=${pendingToken ? 'recovered' : 'none'}`);
           if (pendingToken) {
             appendDebugLog(`Pending auth recovered session on resume (${reason}).`);
             sessionStatus = await getSessionStatus();
+            appendDebugLog(`Post-recovery session (${reason}): authenticated=${sessionStatus.authenticated}`);
           }
         }
         appendDebugLog(
           `Resume session status (${reason}). authenticated=${sessionStatus.authenticated} configured=${sessionStatus.configured}`
         );
         if (!sessionStatus.authenticated) {
-          authUI.showConnectPanel(
+          showConnectPanelWithDebug(
             sessionStatus.configured ? AUTH_DISCONNECTED_MESSAGE : AUTH_CONFIG_MISSING_MESSAGE,
             sessionStatus.configured
           );

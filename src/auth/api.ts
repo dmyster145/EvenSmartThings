@@ -349,22 +349,34 @@ export async function checkPendingAuth(): Promise<string | null> {
   let pendingId: string | null = null;
   try {
     pendingId = localStorage.getItem(PENDING_AUTH_STORAGE_KEY);
-  } catch {
+  } catch (err) {
+    emitSmartThingsDebug(`[PendingAuth] localStorage read failed: ${err instanceof Error ? err.message : String(err)}`, true);
     return null;
   }
-  if (!pendingId) return null;
+  if (!pendingId) {
+    emitSmartThingsDebug('[PendingAuth] No pending auth ID in localStorage.');
+    return null;
+  }
+  emitSmartThingsDebug(`[PendingAuth] Found pending ID: ${pendingId.slice(0, 8)}… Polling server.`);
 
   try {
-    const response = await fetch(
-      `${API_BASE}/api/auth/pending?id=${encodeURIComponent(pendingId)}`,
-      {
-        credentials: 'include',
-        headers: { Accept: 'application/json' },
-      }
-    );
-    if (!response.ok) return null;
+    const url = `${API_BASE}/api/auth/pending?id=${encodeURIComponent(pendingId)}`;
+    emitSmartThingsDebug(`[PendingAuth] Fetching: ${url}`);
+    const response = await fetch(url, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+    emitSmartThingsDebug(`[PendingAuth] Response status: ${response.status}`);
+    if (!response.ok) {
+      emitSmartThingsDebug(`[PendingAuth] Non-OK response: ${response.status}`, true);
+      return null;
+    }
     const data = (await response.json()) as { completed?: boolean; sessionId?: string };
-    if (!data.completed || !data.sessionId) return null;
+    emitSmartThingsDebug(`[PendingAuth] Payload: completed=${data.completed} hasSessionId=${!!data.sessionId}`);
+    if (!data.completed || !data.sessionId) {
+      emitSmartThingsDebug('[PendingAuth] Not yet completed or missing sessionId.');
+      return null;
+    }
 
     // Auth completed externally — store the session token
     writeStoredSessionToken(data.sessionId);
@@ -373,8 +385,10 @@ export async function checkPendingAuth(): Promise<string | null> {
     } catch {
       // ignore
     }
+    emitSmartThingsDebug('[PendingAuth] Session token stored from external OAuth flow.');
     return data.sessionId;
-  } catch {
+  } catch (err) {
+    emitSmartThingsDebug(`[PendingAuth] Fetch error: ${err instanceof Error ? err.message : String(err)}`, true);
     return null;
   }
 }
