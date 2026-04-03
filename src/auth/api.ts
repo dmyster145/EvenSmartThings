@@ -321,8 +321,13 @@ function generatePendingAuthId(): string {
 export function startSmartThingsConnect(returnTo?: string): void {
   // Use the full origin URL so the OAuth redirect comes back to this exact origin
   // (important when running from localhost in the Even simulator).
-  const fallbackReturnTo = window.location.href.split('#')[0]; // strip hash
-  const nextReturnTo = returnTo || fallbackReturnTo || '/';
+  // On a real device the WebView may serve from a localhost port that Safari
+  // cannot reach, so fall back to the Vercel URL as the return_to destination.
+  // The pending auth mechanism handles session recovery in Either case.
+  const currentHref = window.location.href.split('#')[0] ?? '';
+  const isLocalhostOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(currentHref);
+  const apiBase: string = API_BASE ?? '';
+  const safeReturnTo = returnTo || (isLocalhostOrigin ? currentHref : (apiBase || currentHref) || '/') || '/';
   // Generate a pending auth ID so we can recover the session if the OAuth flow
   // breaks out of the WebView (e.g. iOS Universal Links opening SmartThings app).
   const pendingAuthId = generatePendingAuthId();
@@ -332,7 +337,7 @@ export function startSmartThingsConnect(returnTo?: string): void {
     // ignore
   }
   window.location.assign(
-    `${API_BASE}/api/auth/smartthings/start?return_to=${encodeURIComponent(nextReturnTo)}&pending_auth_id=${encodeURIComponent(pendingAuthId)}`
+    `${API_BASE}/api/auth/smartthings/start?return_to=${encodeURIComponent(safeReturnTo)}&pending_auth_id=${encodeURIComponent(pendingAuthId)}`
   );
 }
 

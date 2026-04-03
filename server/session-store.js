@@ -345,7 +345,7 @@ class RedisSessionStore {
       getPendingAuthKey(this.config, pendingId),
       sessionId,
       'EX',
-      '300'
+      '3600'
     );
   }
 
