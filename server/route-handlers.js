@@ -558,7 +558,13 @@ export async function handleAuthCallbackRequest(request, response) {
 
     const oauthState = await store.consumeOAuthState(state);
     if (!oauthState) {
-      return json(response, 400, { error: 'Invalid or expired OAuth state' });
+      // State not found — either expired or already consumed by a prior request.
+      // Some WebViews (e.g. Mulch on /e/OS) issue a speculative prefetch of the callback
+      // URL before the main navigation, consuming the state on the first hit. The session
+      // was likely already created on that first hit, so redirecting to auth-complete.html
+      // lets the user recover via the Refresh button rather than seeing a raw JSON error.
+      const fallbackUrl = `${config.publicAppUrl}/auth-complete.html`;
+      return redirect(response, fallbackUrl);
     }
 
     const tokenSet = await exchangeAuthorizationCode(config, code);
