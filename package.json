@@ -12,6 +12,7 @@
     "dev:server": "node --watch server/index.js",
     "server": "node server/index.js",
     "build": "tsc -b && vite build",
+    "pack": "npm run build && npx @evenrealities/evenhub-cli@0.1.11 pack app.json dist/ && mv out.ehpk smartthings-controls.ehpk",
     "preview": "vite preview",
     "lint": "eslint src/ server/ api/"
   },
