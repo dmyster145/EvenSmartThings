@@ -943,12 +943,18 @@ export async function initApp(): Promise<void> {
   }
 
   if (!hub.hasBridge()) {
-    // Check if the user just completed OAuth outside the Even WebView (e.g. iOS Universal Links).
-    // If a pending auth ID exists, they were mid-flow — show the "return to Even app" panel.
-    let pendingAuthId: string | null = null;
-    try { pendingAuthId = localStorage.getItem('smartthings_controls_pending_auth'); } catch { /* ignore */ }
-    if (pendingAuthId) {
-      appendDebugLog('No bridge — pending auth found. Showing auth-return panel.');
+    // Detect whether the user just returned from an OAuth flow in an external browser.
+    // Two signals work here, depending on which version of auth-complete.html Vercel is running:
+    //   1. urlSessionToken — set when the server redirects with ?_st= directly to this page
+    //      (happens when auth-complete.html is updated and no longer redirects back to /)
+    //   2. Stored bearer token in localStorage — set by the old auth-complete.html which
+    //      stored _st then did window.location.replace('/'), landing here without _st in URL.
+    //      NOTE: Even app WebView and Safari have completely isolated localStorage, so this
+    //      token in Safari localStorage can only have come from auth-complete.html.
+    let storedBearerToken: string | null = null;
+    try { storedBearerToken = localStorage.getItem('smartthings_controls_bearer_session'); } catch { /* ignore */ }
+    if (urlSessionToken || storedBearerToken) {
+      appendDebugLog(`No bridge — OAuth token found (urlToken=${!!urlSessionToken} storedToken=${!!storedBearerToken}). Showing auth-return panel.`);
       showPanel(AUTH_RETURN_ID);
     } else {
       appendDebugLog('No Even bridge available in this webview.');
