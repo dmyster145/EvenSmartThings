@@ -561,16 +561,10 @@ export function ConfigShell(): ReactElement {
               <Button id="connect-smartthings-btn" type="button">
                 Connect SmartThings
               </Button>
-              <Button id="toggle-debug-btn" type="button" variant="secondary">
-                Enable debug console
-              </Button>
             </div>
             <div id="refresh-btn-group" className="btn-group mt-4" style={{ display: 'none' }}>
               <Button id="refresh-session-btn" type="button">
                 Refresh
-              </Button>
-              <Button id="toggle-debug-btn-2" type="button" variant="secondary">
-                Enable debug console
               </Button>
             </div>
             <p id="oauth-pending-notice" className="mt-3 text-[13px] tracking-[-0.13px] text-text-dim" style={{ display: 'none' }}>
