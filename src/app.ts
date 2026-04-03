@@ -99,7 +99,6 @@ import { ImageRawDataUpdate, OsEventTypeList, StartUpPageCreateResult, type Even
 const CONFIG_PANEL_ID = 'config';
 const AUTH_RECONNECT_MESSAGE = 'SmartThings session expired or is unauthorized. Reconnect to continue.';
 const AUTH_CONFIG_MISSING_MESSAGE = 'SmartThings OAuth is not configured on the backend.';
-const AUTH_SERVICE_UNAVAILABLE_MESSAGE = 'SmartThings auth service is unavailable.';
 const AUTH_DISCONNECTED_MESSAGE = 'SmartThings is not connected for this device.';
 
 function getErrorMessage(err: unknown): string {
@@ -1051,7 +1050,7 @@ export async function initApp(): Promise<void> {
   } catch (err) {
     console.warn('[SmartThingsControls] getSessionStatus error:', err);
     appendDebugLog(`Session status failed: ${getErrorMessage(err)}`, true);
-    showConnectPanelWithDebug(AUTH_SERVICE_UNAVAILABLE_MESSAGE, false);
+    showPanel(AUTH_RETURN_ID);
     return;
   }
 
