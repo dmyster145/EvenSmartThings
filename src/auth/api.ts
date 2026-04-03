@@ -327,7 +327,11 @@ export function startSmartThingsConnect(returnTo?: string): void {
   const currentHref = window.location.href.split('#')[0] ?? '';
   const isLocalhostOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(currentHref);
   const apiBase: string = API_BASE ?? '';
-  const safeReturnTo = returnTo || (isLocalhostOrigin ? currentHref : (apiBase || currentHref) || '/') || '/';
+  // For non-localhost origins (e.g. real device), redirect to a simple static
+  // completion page instead of the full SPA. This avoids the SPA re-initialising
+  // in the WebView after OAuth. Session recovery is handled by pending auth.
+  const nonLocalReturnTo = apiBase ? `${apiBase}/auth-complete.html` : '/auth-complete.html';
+  const safeReturnTo = returnTo || (isLocalhostOrigin ? currentHref : nonLocalReturnTo);
   // Generate a pending auth ID so we can recover the session if the OAuth flow
   // breaks out of the WebView (e.g. iOS Universal Links opening SmartThings app).
   const pendingAuthId = generatePendingAuthId();
