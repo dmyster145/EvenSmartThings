@@ -537,7 +537,7 @@ export function ConfigShell(): ReactElement {
             <p className="mt-3 text-[15px] tracking-[-0.15px] text-text-dim">
               Use SmartThings OAuth to connect this app. The backend stores refresh tokens and can renew access tokens when they expire.
             </p>
-            <div className="btn-group mt-4">
+            <div id="connect-btn-group" className="btn-group mt-4">
               <Button id="connect-smartthings-btn" type="button">
                 Connect SmartThings
               </Button>
@@ -545,6 +545,17 @@ export function ConfigShell(): ReactElement {
                 Enable debug console
               </Button>
             </div>
+            <div id="refresh-btn-group" className="btn-group mt-4" style={{ display: 'none' }}>
+              <Button id="refresh-session-btn" type="button">
+                Refresh
+              </Button>
+              <Button id="toggle-debug-btn-2" type="button" variant="secondary">
+                Enable debug console
+              </Button>
+            </div>
+            <p id="oauth-pending-notice" className="mt-3 text-[13px] tracking-[-0.13px] text-text-dim" style={{ display: 'none' }}>
+              SmartThings is opening… After authorizing, return here and tap <strong>Refresh</strong>.
+            </p>
             <p id="config-status" role="status" aria-live="polite" className="mt-4" />
           </SurfaceCard>
         </section>

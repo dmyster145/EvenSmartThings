@@ -166,6 +166,7 @@ type AuthUI = {
   showConnectPanel: (message: string, canConnect?: boolean) => void;
   showConnectedState: (sessionStatus?: SessionStatus) => void;
   setConnectionStatus: (message: string) => void;
+  showOAuthPending: () => void;
 };
 
 function setupAuthUI(): AuthUI {
@@ -177,6 +178,9 @@ function setupAuthUI(): AuthUI {
   const disconnectConfirmEl = document.getElementById('disconnect-smartthings-confirm');
   const disconnectConfirmCancel = document.getElementById('disconnect-smartthings-confirm-cancel') as HTMLButtonElement | null;
   const disconnectConfirmDo = document.getElementById('disconnect-smartthings-confirm-do') as HTMLButtonElement | null;
+  const connectBtnGroup = document.getElementById('connect-btn-group');
+  const refreshBtnGroup = document.getElementById('refresh-btn-group');
+  const oauthPendingNotice = document.getElementById('oauth-pending-notice');
 
   function setConfigStatus(msg: string): void {
     if (statusEl) statusEl.textContent = msg;
@@ -191,12 +195,25 @@ function setupAuthUI(): AuthUI {
     if (reconnectBtn) reconnectBtn.disabled = !enabled;
   }
 
-  if (connectBtn) {
-    connectBtn.onclick = () => startSmartThingsConnect();
+  function showOAuthPending(): void {
+    if (connectBtnGroup) connectBtnGroup.style.display = 'none';
+    if (refreshBtnGroup) refreshBtnGroup.style.display = 'flex';
+    if (oauthPendingNotice) oauthPendingNotice.style.display = 'block';
+    setConfigStatus('');
   }
+
+  function hideOAuthPending(): void {
+    if (connectBtnGroup) connectBtnGroup.style.display = '';
+    if (refreshBtnGroup) refreshBtnGroup.style.display = 'none';
+    if (oauthPendingNotice) oauthPendingNotice.style.display = 'none';
+  }
+
   if (reconnectBtn) {
     reconnectBtn.onclick = () => startSmartThingsConnect();
   }
+
+  // connectBtn.onclick and refreshBtn.onclick are wired in initApp() after authUI is created,
+  // because those handlers need appendDebugLog which is defined in initApp() scope.
   if (disconnectBtn && disconnectConfirmEl) {
     disconnectBtn.onclick = () => {
       disconnectConfirmEl.style.display = 'block';
@@ -222,6 +239,7 @@ function setupAuthUI(): AuthUI {
 
   return {
     showConnectPanel(message, canConnect = true): void {
+      hideOAuthPending();
       setConnectEnabled(canConnect);
       setConfigStatus(message);
       showPanel(CONFIG_PANEL_ID);
@@ -233,6 +251,7 @@ function setupAuthUI(): AuthUI {
       showGlassesActive();
     },
     setConnectionStatus,
+    showOAuthPending,
   };
 }
 const OPEN_IN_EVEN_ID = 'open-in-even';
@@ -926,6 +945,59 @@ export async function initApp(): Promise<void> {
   }
 
   const authUI = setupAuthUI();
+
+  // Wire up connect button — shows OAuth pending UI then opens SmartThings auth.
+  const connectBtn = document.getElementById('connect-smartthings-btn') as HTMLButtonElement | null;
+  if (connectBtn) {
+    connectBtn.onclick = () => {
+      authUI.showOAuthPending();
+      startSmartThingsConnect();
+    };
+  }
+
+  // Wire up refresh button — polls for pending auth and reloads if authenticated.
+  const refreshBtn = document.getElementById('refresh-session-btn') as HTMLButtonElement | null;
+  const configStatusEl = document.getElementById('config-status');
+  function setConfigStatusFromInitApp(msg: string): void {
+    if (configStatusEl) configStatusEl.textContent = msg;
+  }
+  if (refreshBtn) {
+    refreshBtn.onclick = async () => {
+      refreshBtn.disabled = true;
+      setConfigStatusFromInitApp('Checking session…');
+      appendDebugLog('[Refresh] Checking pending auth…');
+      try {
+        const pendingToken = await checkPendingAuth();
+        if (pendingToken) {
+          appendDebugLog('[Refresh] Pending auth resolved — reloading.');
+          location.reload();
+          return;
+        }
+        const sessionStatus = await getSessionStatus();
+        if (sessionStatus.authenticated) {
+          appendDebugLog('[Refresh] Session is authenticated — reloading.');
+          location.reload();
+          return;
+        }
+        appendDebugLog('[Refresh] No session found yet.', true);
+        setConfigStatusFromInitApp('Not connected yet. Finish authorization in SmartThings, then tap Refresh.');
+      } catch (err) {
+        appendDebugLog(`[Refresh] Error: ${getErrorMessage(err)}`, true);
+        setConfigStatusFromInitApp('Could not check session. Try again.');
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    };
+  }
+
+  // Wire up secondary debug toggle button (shown alongside Refresh button).
+  const toggleDebugBtn2 = document.getElementById('toggle-debug-btn-2');
+  if (toggleDebugBtn2 && debugLogContainer) {
+    toggleDebugBtn2.onclick = () => {
+      const visible = debugLogContainer.style.display !== 'none';
+      setDebugVisible(!visible);
+    };
+  }
 
   function showConnectPanelWithDebug(message: string, canConnect?: boolean): void {
     authUI.showConnectPanel(message, canConnect);

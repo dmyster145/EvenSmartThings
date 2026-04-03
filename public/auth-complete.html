@@ -53,24 +53,16 @@
     <div class="card">
       <div class="icon">✓</div>
       <h1>Authorization Complete</h1>
-      <p>SmartThings connected. Returning to the app&hellip;</p>
-      <span class="badge" id="status">Redirecting…</span>
+      <p>SmartThings is connected. Return to the Even app and tap <strong style="color:#f0f0f0;">Refresh</strong> to finish setup.</p>
+      <span class="badge">Done — return to Even app</span>
     </div>
     <script>
       (function () {
+        // Store the session token in localStorage so the Even app can pick it up
+        // via checkPendingAuth() when the user taps Refresh.
         try {
           var params = new URLSearchParams(window.location.search);
           var st = params.get('_st');
-          var appUrl = params.get('app_url');
-          // If we have the original ehpk URL, navigate back to it with the session token appended.
-          // This keeps the WebView on the ehpk origin (not the Vercel SPA) so the bridge and
-          // API calls work correctly.
-          if (appUrl) {
-            var dest = appUrl + (appUrl.indexOf('?') !== -1 ? '&' : '?') + (st ? '_st=' + encodeURIComponent(st) : '_auth_return=1');
-            window.location.replace(dest);
-            return;
-          }
-          // Fallback: store token in localStorage and stay on this page (user sees "Authorization Complete").
           if (st) {
             localStorage.setItem('smartthings_controls_bearer_session', st);
           }
