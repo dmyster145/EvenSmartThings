@@ -497,12 +497,6 @@ export function ConfigShell(): ReactElement {
   return (
     <AppShell className="bg-bg" header={<div />}>
       <Page className="mx-auto w-full max-w-[760px] px-3 pb-12 pt-4">
-        <div className="mb-2 flex justify-end">
-          <Button id="toggle-debug-btn" type="button" variant="secondary" size="sm">
-            Enable debug console
-          </Button>
-        </div>
-
         <section id="open-in-even" className="pb-6">
           <SurfaceCard>
             <div className="flex items-start justify-between gap-3">
@@ -546,6 +540,9 @@ export function ConfigShell(): ReactElement {
             <div className="btn-group mt-4">
               <Button id="connect-smartthings-btn" type="button">
                 Connect SmartThings
+              </Button>
+              <Button id="toggle-debug-btn" type="button" variant="secondary">
+                Enable debug console
               </Button>
             </div>
             <p id="config-status" role="status" aria-live="polite" className="mt-4" />
