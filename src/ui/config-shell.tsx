@@ -497,6 +497,12 @@ export function ConfigShell(): ReactElement {
   return (
     <AppShell className="bg-bg" header={<div />}>
       <Page className="mx-auto w-full max-w-[760px] px-3 pb-12 pt-4">
+        <div className="mb-2 flex justify-end">
+          <Button id="toggle-debug-btn" type="button" variant="secondary" size="sm">
+            Enable debug console
+          </Button>
+        </div>
+
         <section id="open-in-even" className="pb-6">
           <SurfaceCard>
             <div className="flex items-start justify-between gap-3">
@@ -562,12 +568,6 @@ export function ConfigShell(): ReactElement {
             <ConnectionTab />
           </div>
         </section>
-
-        <div className="mt-4">
-          <Button id="toggle-debug-btn" type="button" variant="secondary">
-            Enable debug console
-          </Button>
-        </div>
 
         <div id="debug-log-container" className="debug-console-panel mt-4" style={{ display: 'none' }}>
           <div className="btn-group">
