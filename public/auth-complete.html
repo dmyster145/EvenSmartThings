@@ -36,18 +36,8 @@
         margin: 0 auto 20px;
         font-size: 28px;
       }
-      h1 {
-        font-size: 22px;
-        font-weight: 600;
-        letter-spacing: -0.4px;
-        margin-bottom: 10px;
-      }
-      p {
-        font-size: 15px;
-        color: #999;
-        line-height: 1.5;
-        margin-bottom: 24px;
-      }
+      h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.4px; margin-bottom: 10px; }
+      p { font-size: 15px; color: #999; line-height: 1.5; margin-bottom: 24px; }
       .badge {
         display: inline-block;
         background: #1a3a2a;
@@ -63,8 +53,21 @@
     <div class="card">
       <div class="icon">✓</div>
       <h1>Authorization Complete</h1>
-      <p>SmartThings has been connected. Return to the Even App to continue.</p>
-      <span class="badge">Return to Even App</span>
+      <p>SmartThings connected. Returning to the app&hellip;</p>
+      <span class="badge" id="status">Redirecting…</span>
     </div>
+    <script>
+      (function () {
+        try {
+          var params = new URLSearchParams(window.location.search);
+          var st = params.get('_st');
+          if (st) {
+            localStorage.setItem('smartthings_controls_bearer_session', st);
+          }
+        } catch (e) { /* ignore */ }
+        // Redirect to the full app — it will authenticate via the stored token.
+        window.location.replace('/');
+      })();
+    </script>
   </body>
 </html>

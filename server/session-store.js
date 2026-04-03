@@ -140,8 +140,7 @@ class FileSessionStore {
     const store = await loadStore(this.filePath);
     const entry = store.pendingAuths[pendingId];
     if (!entry) return null;
-    delete store.pendingAuths[pendingId];
-    await saveStore(this.filePath, store);
+    // Read without deleting — allow multiple claims within the TTL window.
     return entry.sessionId;
   }
 }
@@ -351,7 +350,9 @@ class RedisSessionStore {
 
   async getPendingAuth(pendingId) {
     if (!pendingId) return null;
-    const raw = await this.runCommand('GETDEL', getPendingAuthKey(this.config, pendingId));
+    // Use GET (not GETDEL) so both the Vercel SPA and the ehpk app can each
+    // claim the session within the TTL window without consuming the key.
+    const raw = await this.runCommand('GET', getPendingAuthKey(this.config, pendingId));
     return typeof raw === 'string' ? raw : null;
   }
 }
