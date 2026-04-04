@@ -327,15 +327,16 @@ export function startSmartThingsConnect(returnTo?: string): void {
   const currentHref = window.location.href.split('#')[0] ?? '';
   const isLocalhostOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(currentHref);
   const apiBase: string = API_BASE ?? '';
-  // For non-localhost origins (e.g. real device), redirect to a simple static
-  // completion page instead of the full SPA. This avoids the SPA re-initialising
-  // in the WebView after OAuth. Session recovery is handled by pending auth.
-  // Pass the original ehpk URL as app_url so auth-complete.html can redirect back to it
-  // (with the _st session token appended). This keeps the WebView on the ehpk origin
-  // and avoids the 404 that occurs when the Vercel SPA tries to call /api/session.
+  // When an external API base is configured, the ehpk files are served locally
+  // (localhost/127.0.0.1) but API calls go to Vercel. Safari cannot reach the
+  // localhost address after OAuth, so use auth-complete.html on Vercel instead.
+  // Dev/simulator: isLocalhostOrigin AND no external base — return_to stays at
+  // the local address so the WebView comes back to the SPA after OAuth.
+  const hasExternalApiBase = apiBase.startsWith('https://') ||
+    (apiBase.startsWith('http://') && !/localhost|127\.0\.0\.1/.test(apiBase));
   const appUrlParam = currentHref ? `?app_url=${encodeURIComponent(currentHref)}` : '';
   const nonLocalReturnTo = apiBase ? `${apiBase}/auth-complete.html${appUrlParam}` : `/auth-complete.html${appUrlParam}`;
-  const safeReturnTo = returnTo || (isLocalhostOrigin ? currentHref : nonLocalReturnTo);
+  const safeReturnTo = returnTo || (isLocalhostOrigin && !hasExternalApiBase ? currentHref : nonLocalReturnTo);
   // Generate a pending auth ID so we can recover the session if the OAuth flow
   // breaks out of the WebView (e.g. iOS Universal Links opening SmartThings app).
   const pendingAuthId = generatePendingAuthId();

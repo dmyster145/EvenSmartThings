@@ -72,6 +72,8 @@ import {
   executeSceneViaServer,
   getSessionStatus,
   getSmartThingsAccessToken,
+  readStoredSessionToken,
+  writeStoredSessionToken,
   SMARTTHINGS_DEBUG_EVENT,
   startSmartThingsConnect,
   type SmartThingsBatchRelayResult,
@@ -168,7 +170,7 @@ type AuthUI = {
   showOAuthPending: () => void;
 };
 
-function setupAuthUI(): AuthUI {
+function setupAuthUI(onBeforeDisconnect?: () => Promise<void>): AuthUI {
   const connectBtn = document.getElementById('connect-smartthings-btn') as HTMLButtonElement | null;
   const statusEl = document.getElementById('config-status');
   const reconnectBtn = document.getElementById('reconnect-smartthings-btn') as HTMLButtonElement | null;
@@ -227,6 +229,7 @@ function setupAuthUI(): AuthUI {
     disconnectConfirmDo.onclick = async () => {
       disconnectConfirmDo.disabled = true;
       try {
+        await onBeforeDisconnect?.();
         await disconnectSmartThings();
         location.reload();
       } catch (err) {
@@ -962,7 +965,25 @@ export async function initApp(): Promise<void> {
     return;
   }
 
-  const authUI = setupAuthUI();
+  // The Even bridge's setLocalStorage/getLocalStorage is backed by native app storage
+  // that survives WebView restarts on iOS. The WebView's own localStorage is cleared
+  // when the Even app is closed. Sync on startup so the session token is always
+  // available after the app is reopened without requiring re-authentication.
+  const SESSION_BRIDGE_KEY = 'smartthings_controls_bearer_session';
+  const webSessionToken = readStoredSessionToken();
+  if (!webSessionToken) {
+    const bridgeToken = await hub.getLocalStorage(SESSION_BRIDGE_KEY);
+    if (bridgeToken) {
+      writeStoredSessionToken(bridgeToken);
+      appendDebugLog('Session token restored from Even bridge persistent storage.');
+    }
+  } else {
+    void hub.setLocalStorage(SESSION_BRIDGE_KEY, webSessionToken);
+  }
+
+  const authUI = setupAuthUI(async () => {
+    await hub.setLocalStorage(SESSION_BRIDGE_KEY, '');
+  });
 
   // Wire up connect button — shows OAuth pending UI then opens SmartThings auth.
   const connectBtn = document.getElementById('connect-smartthings-btn') as HTMLButtonElement | null;
@@ -1039,6 +1060,7 @@ export async function initApp(): Promise<void> {
       const pendingToken = await checkPendingAuth();
       appendDebugLog(`Pending auth result: token=${pendingToken ? 'recovered' : 'none'}`);
       if (pendingToken) {
+        void hub.setLocalStorage(SESSION_BRIDGE_KEY, pendingToken);
         appendDebugLog('Pending auth recovered session from external OAuth flow.');
         initialSessionStatus = await getSessionStatus();
         appendDebugLog(`Post-recovery session: authenticated=${initialSessionStatus.authenticated}`);
@@ -1092,6 +1114,7 @@ export async function initApp(): Promise<void> {
     if (authExpiredHandled) return true;
     authExpiredHandled = true;
     invalidateSmartThingsClient('auth failure');
+    void hub.setLocalStorage(SESSION_BRIDGE_KEY, '');
     await disconnectSmartThings().catch(() => undefined);
     store.dispatch({ type: 'AUTH_EXPIRED', message: AUTH_RECONNECT_MESSAGE });
     refreshPage();
