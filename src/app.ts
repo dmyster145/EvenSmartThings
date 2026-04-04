@@ -1184,10 +1184,10 @@ export async function initApp(): Promise<void> {
   try {
     await loadIconCache();
     const deviceInfo = await hub.getDeviceInfo();
-    const isLikelySimulator =
-      typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    useRawImages = !isLikelySimulator && hub.isRealGlasses(deviceInfo);
+    // isRealGlasses() checks DeviceModel (G1/G2) — reliable on both real hardware
+    // and the simulator regardless of hostname. The ehpk is served from 127.0.0.1
+    // on a real device, so hostname-based simulator detection was incorrect.
+    useRawImages = hub.isRealGlasses(deviceInfo);
     useRealGlasses = hub.isRealGlasses(deviceInfo);
     appendDebugLog(
       `Device info loaded. model=${deviceInfo?.model ?? 'unknown'} connectType=${deviceInfo?.status?.connectType ?? 'unknown'} rawImages=${useRawImages}`
