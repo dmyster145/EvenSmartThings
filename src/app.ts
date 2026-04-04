@@ -978,7 +978,7 @@ export async function initApp(): Promise<void> {
       appendDebugLog('Session token restored from Even bridge persistent storage.');
     }
   } else {
-    void hub.setLocalStorage(SESSION_BRIDGE_KEY, webSessionToken);
+    await hub.setLocalStorage(SESSION_BRIDGE_KEY, webSessionToken);
   }
 
   const authUI = setupAuthUI(async () => {
@@ -1060,7 +1060,7 @@ export async function initApp(): Promise<void> {
       const pendingToken = await checkPendingAuth();
       appendDebugLog(`Pending auth result: token=${pendingToken ? 'recovered' : 'none'}`);
       if (pendingToken) {
-        void hub.setLocalStorage(SESSION_BRIDGE_KEY, pendingToken);
+        await hub.setLocalStorage(SESSION_BRIDGE_KEY, pendingToken);
         appendDebugLog('Pending auth recovered session from external OAuth flow.');
         initialSessionStatus = await getSessionStatus();
         appendDebugLog(`Post-recovery session: authenticated=${initialSessionStatus.authenticated}`);
@@ -1114,7 +1114,7 @@ export async function initApp(): Promise<void> {
     if (authExpiredHandled) return true;
     authExpiredHandled = true;
     invalidateSmartThingsClient('auth failure');
-    void hub.setLocalStorage(SESSION_BRIDGE_KEY, '');
+    await hub.setLocalStorage(SESSION_BRIDGE_KEY, '');
     await disconnectSmartThings().catch(() => undefined);
     store.dispatch({ type: 'AUTH_EXPIRED', message: AUTH_RECONNECT_MESSAGE });
     refreshPage();

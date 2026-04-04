@@ -75,25 +75,25 @@
         try {
           var params = new URLSearchParams(window.location.search);
           var st = params.get('_st');
+          var appUrl = params.get('app_url');
+
           if (st) {
             localStorage.setItem('smartthings_controls_bearer_session', st);
           }
 
-          // Detect context: the pendingAuthId is written to localStorage only by the
-          // Even Hub WebView when the user taps "Connect SmartThings". Safari's
-          // localStorage is isolated and will never have this key.
-          // - WebView: show Refresh button so the user can navigate back to the SPA
-          //   (same origin, same localStorage — token is already stored above).
-          // - Safari: show "Return to Even app" only. The Even Hub WebView's own
-          //   Refresh button uses checkPendingAuth() via Redis, which keeps the
-          //   session in the WebView's localStorage where it belongs.
-          var pendingAuthId = localStorage.getItem('smartthings_controls_pending_auth');
-          if (pendingAuthId) {
-            document.getElementById('refresh-btn').style.display = 'block';
-            document.getElementById('auth-message').innerHTML =
-              'SmartThings is connected. Tap <strong style="color:#f0f0f0;">Refresh</strong> below to finish setup.';
-            document.getElementById('auth-badge').textContent = 'Connected';
+          // If app_url is a localhost/127.0.0.1 address, this page loaded inside the
+          // Even Hub WebView (the ehpk is served from a local port). Redirect back to
+          // the SPA with the _st token so it can authenticate without the user needing
+          // to do anything. The SPA's consumeSessionTokenFromUrl() handles the rest.
+          if (st && appUrl && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(appUrl)) {
+            var sep = appUrl.indexOf('?') >= 0 ? '&' : '?';
+            window.location.replace(appUrl + sep + '_st=' + encodeURIComponent(st));
+            return;
           }
+
+          // Not in WebView (e.g. Safari after iOS Universal Link redirect) —
+          // show the "Return to Even app" message. The WebView will recover the
+          // session via checkPendingAuth() when the user reopens the app.
         } catch (e) { /* ignore */ }
       })();
     </script>
