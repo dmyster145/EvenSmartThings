@@ -565,7 +565,7 @@ export function ConfigShell(): ReactElement {
                 Connect SmartThings
               </Button>
               <Button id="connect-other-device-btn" type="button" variant="secondary">
-                Open on Mac / Tablet
+                Can't Connect? Get a Link
               </Button>
             </div>
             <div id="cross-device-section" className="mt-4" style={{ display: 'none' }}>
