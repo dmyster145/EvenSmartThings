@@ -537,7 +537,46 @@ export async function handleAuthStartRequest(request, response) {
     const returnTo = normalizeReturnTo(url.searchParams.get('return_to'));
     const pendingAuthId = url.searchParams.get('pending_auth_id') || null;
     const state = await store.createOAuthState(returnTo, pendingAuthId);
-    return redirect(response, buildAuthorizeUrl(config, state));
+    const authorizeUrl = buildAuthorizeUrl(config, state);
+
+    // On iOS with the Samsung SmartThings app installed, api.smartthings.com/oauth/authorize
+    // is registered as a Universal Link across all SmartThings app variants. iOS intercepts
+    // the navigation BEFORE any network request is made and opens the native SmartThings app.
+    // The native app handles OAuth internally but does NOT forward the authorization code to
+    // our redirect_uri, so the session is never created.
+    //
+    // Bypass: fetch the authorize URL server-side (no Universal Links on the server) with
+    // redirect:manual to capture only the first-hop Location header, then send the client
+    // directly to that URL (typically account.smartthings.com, which has no AASA/Universal
+    // Links registered). The user's browser then shows the web OAuth login page instead of
+    // opening the native app.
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      let probeLocation = null;
+      try {
+        const probe = await fetch(authorizeUrl, {
+          method: 'GET',
+          redirect: 'manual',
+          signal: controller.signal,
+        });
+        if ((probe.status === 301 || probe.status === 302) && probe.headers.get('location')) {
+          probeLocation = probe.headers.get('location');
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
+      if (probeLocation) {
+        let bypassHostname = probeLocation;
+        try { bypassHostname = new URL(probeLocation).hostname; } catch { /* ignore */ }
+        console.log('[smartthings-controls-server] Auth start: Universal Link bypass — redirecting client to ' + bypassHostname + ' instead of api.smartthings.com/oauth/authorize');
+        return redirect(response, probeLocation);
+      }
+    } catch (probeErr) {
+      console.warn('[smartthings-controls-server] Auth start: bypass probe failed, falling back to direct redirect:', probeErr instanceof Error ? probeErr.message : String(probeErr));
+    }
+
+    return redirect(response, authorizeUrl);
   } catch (err) {
     return sendServerError(response, err);
   }
