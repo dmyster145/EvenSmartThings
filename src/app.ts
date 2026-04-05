@@ -1042,6 +1042,8 @@ export async function initApp(): Promise<void> {
       const url = buildCrossDeviceConnectUrl(pendingAuthId);
       if (crossDeviceUrlEl) crossDeviceUrlEl.textContent = url;
       if (crossDeviceSection) crossDeviceSection.style.display = '';
+      // Show the Refresh button so the user can check session after completing OAuth on another device.
+      authUI.showOAuthPending();
       appendDebugLog(`[CrossDevice] URL ready for another device.`);
     };
   }

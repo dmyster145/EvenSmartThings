@@ -583,7 +583,7 @@ export function ConfigShell(): ReactElement {
               </Button>
             </div>
             <p id="oauth-pending-notice" className="mt-3 text-[13px] tracking-[-0.13px] text-text-dim" style={{ display: 'none' }}>
-              SmartThings is opening… After authorizing, return here and tap <strong>Refresh</strong>.
+              Open the link on another device and authorize SmartThings there. Then tap <strong>Refresh</strong> here to complete setup.
             </p>
             <p id="config-status" role="status" aria-live="polite" className="mt-4" />
           </SurfaceCard>
