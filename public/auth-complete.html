@@ -81,19 +81,25 @@
             localStorage.setItem('smartthings_controls_bearer_session', st);
           }
 
-          // If app_url is a localhost/127.0.0.1 address, this page loaded inside the
-          // Even Hub WebView (the ehpk is served from a local port). Redirect back to
-          // the SPA with the _st token so it can authenticate without the user needing
-          // to do anything. The SPA's consumeSessionTokenFromUrl() handles the rest.
-          if (st && appUrl && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(appUrl)) {
+          // Detect context using pendingAuthId in localStorage.
+          // The Even Hub WebView writes this key when the user taps "Connect SmartThings".
+          // Safari's localStorage is completely isolated from the WebView — it will never
+          // have this key. This is the only reliable way to tell the two contexts apart,
+          // since both may receive the same app_url parameter.
+          var pendingAuthId = null;
+          try { pendingAuthId = localStorage.getItem('smartthings_controls_pending_auth'); } catch (e) { /* ignore */ }
+
+          if (pendingAuthId && st && appUrl) {
+            // Running inside the Even Hub WebView — redirect back to the SPA with the
+            // session token so authentication completes without any user interaction.
             var sep = appUrl.indexOf('?') >= 0 ? '&' : '?';
             window.location.replace(appUrl + sep + '_st=' + encodeURIComponent(st));
             return;
           }
 
-          // Not in WebView (e.g. Safari after iOS Universal Link redirect) —
-          // show the "Return to Even app" message. The WebView will recover the
-          // session via checkPendingAuth() when the user reopens the app.
+          // Running in Safari (no pendingAuthId) — show the "Return to Even app" message.
+          // The WebView recovers the session via checkPendingAuth() (Redis) when the
+          // user switches back and taps Refresh.
         } catch (e) { /* ignore */ }
       })();
     </script>
