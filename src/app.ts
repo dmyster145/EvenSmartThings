@@ -210,9 +210,7 @@ function setupAuthUI(onBeforeDisconnect?: () => Promise<void>): AuthUI {
     if (oauthPendingNotice) oauthPendingNotice.style.display = 'none';
   }
 
-  if (reconnectBtn) {
-    reconnectBtn.onclick = () => startSmartThingsConnect();
-  }
+  // reconnectBtn.onclick is wired in initApp() so it has access to hub and appendDebugLog.
 
   // connectBtn.onclick and refreshBtn.onclick are wired in initApp() after authUI is created,
   // because those handlers need appendDebugLog which is defined in initApp() scope.
@@ -1008,14 +1006,23 @@ export async function initApp(): Promise<void> {
   // Persist the pending auth ID to bridge storage BEFORE navigating away so that
   // if iOS kills the WebView while the user is in the SmartThings app, we can still
   // find the pending auth ID on the next startup and recover the session automatically.
+  async function startOAuthConnect(): Promise<void> {
+    authUI.showOAuthPending();
+    const pendingAuthId = preparePendingAuth();
+    appendDebugLog(`[Connect] Prepared pendingAuthId=${pendingAuthId.slice(0, 8)}… Writing to bridge storage.`);
+    await hub.setLocalStorage(PENDING_AUTH_BRIDGE_KEY, pendingAuthId);
+    appendDebugLog(`[Connect] Bridge storage written. Starting OAuth flow.`);
+    startSmartThingsConnect(undefined, pendingAuthId);
+  }
+
   const connectBtn = document.getElementById('connect-smartthings-btn') as HTMLButtonElement | null;
   if (connectBtn) {
-    connectBtn.onclick = async () => {
-      authUI.showOAuthPending();
-      const pendingAuthId = preparePendingAuth();
-      await hub.setLocalStorage(PENDING_AUTH_BRIDGE_KEY, pendingAuthId);
-      startSmartThingsConnect(undefined, pendingAuthId);
-    };
+    connectBtn.onclick = () => { void startOAuthConnect(); };
+  }
+
+  const reconnectBtn = document.getElementById('reconnect-smartthings-btn') as HTMLButtonElement | null;
+  if (reconnectBtn) {
+    reconnectBtn.onclick = () => { void startOAuthConnect(); };
   }
 
   // Wire up refresh button — polls for pending auth and reloads if authenticated.
@@ -1030,19 +1037,30 @@ export async function initApp(): Promise<void> {
       setConfigStatusFromInitApp('Checking session…');
       appendDebugLog('[Refresh] Checking pending auth…');
       try {
-        const pendingToken = await checkPendingAuth();
-        if (pendingToken) {
-          appendDebugLog('[Refresh] Pending auth resolved — reloading.');
-          location.reload();
-          return;
+        // Poll up to 5 times with 2s delay to handle the case where the OAuth
+        // callback is still in-flight when the user taps Refresh.
+        const MAX_POLLS = 5;
+        const POLL_DELAY_MS = 2000;
+        for (let attempt = 1; attempt <= MAX_POLLS; attempt++) {
+          const pendingToken = await checkPendingAuth();
+          if (pendingToken) {
+            appendDebugLog(`[Refresh] Pending auth resolved on attempt ${attempt} — reloading.`);
+            location.reload();
+            return;
+          }
+          const sessionStatus = await getSessionStatus();
+          if (sessionStatus.authenticated) {
+            appendDebugLog(`[Refresh] Session authenticated on attempt ${attempt} — reloading.`);
+            location.reload();
+            return;
+          }
+          appendDebugLog(`[Refresh] Attempt ${attempt}/${MAX_POLLS}: not completed yet.`);
+          if (attempt < MAX_POLLS) {
+            setConfigStatusFromInitApp(`Waiting for SmartThings… (${attempt}/${MAX_POLLS})`);
+            await new Promise(r => setTimeout(r, POLL_DELAY_MS));
+          }
         }
-        const sessionStatus = await getSessionStatus();
-        if (sessionStatus.authenticated) {
-          appendDebugLog('[Refresh] Session is authenticated — reloading.');
-          location.reload();
-          return;
-        }
-        appendDebugLog('[Refresh] No session found yet.', true);
+        appendDebugLog('[Refresh] No session found after all attempts.', true);
         setConfigStatusFromInitApp('Not connected yet. Finish authorization in SmartThings, then tap Refresh.');
       } catch (err) {
         appendDebugLog(`[Refresh] Error: ${getErrorMessage(err)}`, true);
@@ -2557,10 +2575,12 @@ export async function initApp(): Promise<void> {
 
   const visibilityHandler = () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      appendDebugLog('[Visibility] App hidden.');
       invalidateSmartThingsClient('hidden');
       void releaseWakeLock('hidden');
       return;
     }
+    appendDebugLog('[Visibility] App visible — resuming.');
     void requestWakeLock('visibilitychange');
     void resumeBridgeSession('visibilitychange');
   };
