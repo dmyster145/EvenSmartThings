@@ -72,6 +72,7 @@ import {
   executeSceneViaServer,
   getSessionStatus,
   getSmartThingsAccessToken,
+  preparePendingAuth,
   readStoredSessionToken,
   writeStoredSessionToken,
   SMARTTHINGS_DEBUG_EVENT,
@@ -967,9 +968,12 @@ export async function initApp(): Promise<void> {
 
   // The Even bridge's setLocalStorage/getLocalStorage is backed by native app storage
   // that survives WebView restarts on iOS. The WebView's own localStorage is cleared
-  // when the Even app is closed. Sync on startup so the session token is always
-  // available after the app is reopened without requiring re-authentication.
+  // when the Even app is closed. Sync session token and pending auth ID on startup
+  // so both survive a WebView restart without requiring re-authentication or losing
+  // an in-progress OAuth flow.
   const SESSION_BRIDGE_KEY = 'smartthings_controls_bearer_session';
+  const PENDING_AUTH_BRIDGE_KEY = 'smartthings_controls_pending_auth';
+
   const webSessionToken = readStoredSessionToken();
   if (!webSessionToken) {
     const bridgeToken = await hub.getLocalStorage(SESSION_BRIDGE_KEY);
@@ -981,16 +985,36 @@ export async function initApp(): Promise<void> {
     await hub.setLocalStorage(SESSION_BRIDGE_KEY, webSessionToken);
   }
 
+  // Restore pending auth ID from bridge storage if localStorage was cleared.
+  // This allows checkPendingAuth() on startup to recover a session even after
+  // the WebView was killed mid-OAuth-flow (e.g. iOS closing the WebView while
+  // the user was completing authorization in the SmartThings native app).
+  let webPendingAuthId: string | null = null;
+  try { webPendingAuthId = localStorage.getItem(PENDING_AUTH_BRIDGE_KEY); } catch { /* ignore */ }
+  if (!webPendingAuthId) {
+    const bridgePendingAuthId = await hub.getLocalStorage(PENDING_AUTH_BRIDGE_KEY);
+    if (bridgePendingAuthId) {
+      try { localStorage.setItem(PENDING_AUTH_BRIDGE_KEY, bridgePendingAuthId); } catch { /* ignore */ }
+      appendDebugLog('Pending auth ID restored from Even bridge persistent storage.');
+    }
+  }
+
   const authUI = setupAuthUI(async () => {
     await hub.setLocalStorage(SESSION_BRIDGE_KEY, '');
+    await hub.setLocalStorage(PENDING_AUTH_BRIDGE_KEY, '');
   });
 
   // Wire up connect button — shows OAuth pending UI then opens SmartThings auth.
+  // Persist the pending auth ID to bridge storage BEFORE navigating away so that
+  // if iOS kills the WebView while the user is in the SmartThings app, we can still
+  // find the pending auth ID on the next startup and recover the session automatically.
   const connectBtn = document.getElementById('connect-smartthings-btn') as HTMLButtonElement | null;
   if (connectBtn) {
-    connectBtn.onclick = () => {
+    connectBtn.onclick = async () => {
       authUI.showOAuthPending();
-      startSmartThingsConnect();
+      const pendingAuthId = preparePendingAuth();
+      await hub.setLocalStorage(PENDING_AUTH_BRIDGE_KEY, pendingAuthId);
+      startSmartThingsConnect(undefined, pendingAuthId);
     };
   }
 

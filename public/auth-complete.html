@@ -84,22 +84,29 @@
           // Detect context using pendingAuthId in localStorage.
           // The Even Hub WebView writes this key when the user taps "Connect SmartThings".
           // Safari's localStorage is completely isolated from the WebView — it will never
-          // have this key. This is the only reliable way to tell the two contexts apart,
-          // since both may receive the same app_url parameter.
+          // have this key. This is the only reliable way to tell the two contexts apart.
           var pendingAuthId = null;
           try { pendingAuthId = localStorage.getItem('smartthings_controls_pending_auth'); } catch (e) { /* ignore */ }
 
-          if (pendingAuthId && st && appUrl) {
-            // Running inside the Even Hub WebView — redirect back to the SPA with the
-            // session token so authentication completes without any user interaction.
-            var sep = appUrl.indexOf('?') >= 0 ? '&' : '?';
-            window.location.replace(appUrl + sep + '_st=' + encodeURIComponent(st));
-            return;
+          if (pendingAuthId) {
+            if (st && appUrl) {
+              // Running inside the Even Hub WebView with a session token and a return URL.
+              // Redirect back to the SPA so authentication completes without user interaction.
+              // app_url is validated server-side to be a localhost address only.
+              var sep = appUrl.indexOf('?') >= 0 ? '&' : '?';
+              window.location.replace(appUrl + sep + '_st=' + encodeURIComponent(st));
+              return;
+            }
+            // WebView context but missing _st or app_url (e.g. user cancelled OAuth, or a
+            // speculative prefetch consumed the state before the real request). Show the
+            // Refresh button so the user can manually trigger checkPendingAuth().
+            document.getElementById('refresh-btn').style.display = 'block';
+            document.getElementById('auth-message').innerHTML =
+              'SmartThings authorization is in progress. Tap <strong style="color:#f0f0f0;">Refresh</strong> below to complete setup.';
+            document.getElementById('auth-badge').textContent = 'Tap Refresh below';
           }
 
-          // Running in Safari (no pendingAuthId) — show the "Return to Even app" message.
-          // The WebView recovers the session via checkPendingAuth() (Redis) when the
-          // user switches back and taps Refresh.
+          // Safari (no pendingAuthId): show the default "Return to Even app" message only.
         } catch (e) { /* ignore */ }
       })();
     </script>

@@ -318,7 +318,22 @@ function generatePendingAuthId(): string {
   return `pa-${Date.now()}-${Math.random().toString(36).slice(2, 14)}`;
 }
 
-export function startSmartThingsConnect(returnTo?: string): void {
+/**
+ * Generate a pending auth ID, write it to localStorage, and return it.
+ * Call this before startSmartThingsConnect so the caller can also persist
+ * the ID to bridge storage before the WebView navigates away.
+ */
+export function preparePendingAuth(): string {
+  const pendingAuthId = generatePendingAuthId();
+  try {
+    localStorage.setItem(PENDING_AUTH_STORAGE_KEY, pendingAuthId);
+  } catch {
+    // ignore
+  }
+  return pendingAuthId;
+}
+
+export function startSmartThingsConnect(returnTo?: string, pendingAuthId?: string): void {
   // Use the full origin URL so the OAuth redirect comes back to this exact origin
   // (important when running from localhost in the Even simulator).
   // On a real device the WebView may serve from a localhost port that Safari
@@ -337,16 +352,11 @@ export function startSmartThingsConnect(returnTo?: string): void {
   const appUrlParam = currentHref ? `?app_url=${encodeURIComponent(currentHref)}` : '';
   const nonLocalReturnTo = apiBase ? `${apiBase}/auth-complete.html${appUrlParam}` : `/auth-complete.html${appUrlParam}`;
   const safeReturnTo = returnTo || (isLocalhostOrigin && !hasExternalApiBase ? currentHref : nonLocalReturnTo);
-  // Generate a pending auth ID so we can recover the session if the OAuth flow
-  // breaks out of the WebView (e.g. iOS Universal Links opening SmartThings app).
-  const pendingAuthId = generatePendingAuthId();
-  try {
-    localStorage.setItem(PENDING_AUTH_STORAGE_KEY, pendingAuthId);
-  } catch {
-    // ignore
-  }
+  // Use a pre-generated pending auth ID (so the caller can persist it to bridge
+  // storage before navigation), or generate one now as a fallback.
+  const authId = pendingAuthId ?? preparePendingAuth();
   window.location.assign(
-    `${API_BASE}/api/auth/smartthings/start?return_to=${encodeURIComponent(safeReturnTo)}&pending_auth_id=${encodeURIComponent(pendingAuthId)}`
+    `${API_BASE}/api/auth/smartthings/start?return_to=${encodeURIComponent(safeReturnTo)}&pending_auth_id=${encodeURIComponent(authId)}`
   );
 }
 

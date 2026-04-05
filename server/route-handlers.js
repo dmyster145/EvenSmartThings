@@ -65,6 +65,19 @@ function isTrustedReturnToUrl(url) {
   }
 }
 
+function isTrustedAppUrl(value) {
+  // app_url is only ever a localhost address (the ehpk WebView port).
+  // Reject anything else to prevent the session token being redirected
+  // to an attacker-controlled domain via a crafted return_to param.
+  if (typeof value !== 'string' || !value) return false;
+  try {
+    const parsed = new URL(value);
+    return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(parsed.origin);
+  } catch {
+    return false;
+  }
+}
+
 function normalizeReturnTo(value) {
   if (typeof value !== 'string' || !value) return '/';
   // Allow full trusted URLs (e.g. http://localhost:5173/)
@@ -73,6 +86,20 @@ function normalizeReturnTo(value) {
   }
   // Otherwise require a safe relative path
   if (!value.startsWith('/') || value.startsWith('//')) return '/';
+  // Strip any app_url param that doesn't point to a trusted localhost address.
+  // normalizeReturnTo validates the outer return_to but not nested params;
+  // an attacker could embed app_url=https://evil.com in a relative path that
+  // passes the leading-slash check above, then steal the _st token client-side.
+  try {
+    const parsed = new URL(value, 'http://localhost');
+    const appUrl = parsed.searchParams.get('app_url');
+    if (appUrl !== null && !isTrustedAppUrl(appUrl)) {
+      parsed.searchParams.delete('app_url');
+      return parsed.pathname + (parsed.search ? parsed.search : '');
+    }
+  } catch {
+    // ignore — return value as-is
+  }
   return value;
 }
 
