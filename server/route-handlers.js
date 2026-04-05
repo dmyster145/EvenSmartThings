@@ -523,6 +523,56 @@ export async function handleSmartThingsExecuteRequest(request, response) {
   }
 }
 
+export async function handleAuthPatRequest(request, response) {
+  try {
+    if (handlePreflightIfNeeded(response, request, config.publicAppUrl)) return;
+    applyCors(response, request, config.publicAppUrl);
+    if (request.method !== 'POST') return methodNotAllowed(response, ['POST']);
+
+    const body = await readJsonBody(request);
+    const token = typeof body?.token === 'string' ? body.token.trim() : '';
+    if (!token) {
+      return json(response, 400, { error: 'token is required' });
+    }
+
+    // Validate the PAT by making a lightweight SmartThings API call.
+    let validationResponse;
+    try {
+      validationResponse = await fetch(`${SMARTTHINGS_API_BASE_URL}/devices?limit=1`, {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      console.warn('[smartthings-controls-server] PAT validation network error:', err instanceof Error ? err.message : err);
+      return json(response, 502, { error: 'Could not reach SmartThings to validate token' });
+    }
+
+    if (!validationResponse.ok) {
+      if (validationResponse.status === 401 || validationResponse.status === 403) {
+        return json(response, 401, { error: 'Invalid or expired Personal Access Token' });
+      }
+      return json(response, 502, { error: `SmartThings returned status ${validationResponse.status}` });
+    }
+
+    // PAT is valid. Create a session. PAT sessions have no refreshToken; expiresAt is set
+    // far in the future — the session stays alive until the PAT is revoked or expires.
+    const session = await store.createSession({
+      accessToken: token,
+      refreshToken: null,
+      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // 1 year
+      scope: config.smartThings.scopes,
+      tokenType: 'Bearer',
+    });
+
+    const cookieOptions = getSessionCookieOptions(request);
+    setSessionCookie(response, config.sessionCookieName, session.sessionId, cookieOptions);
+    console.log('[smartthings-controls-server] PAT auth: session created. sessionId=' + session.sessionId.slice(0, 8) + '…');
+    return json(response, 200, { sessionId: session.sessionId });
+  } catch (err) {
+    return sendServerError(response, err);
+  }
+}
+
 export async function handleAuthStartRequest(request, response) {
   try {
     if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);

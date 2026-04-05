@@ -74,6 +74,10 @@ export async function ensureFreshSession(config, store, session) {
   const expiresAtMs = Date.parse(session.expiresAt ?? '');
   const shouldRefresh = Number.isNaN(expiresAtMs) || expiresAtMs <= Date.now() + 60_000;
   if (!shouldRefresh) return session;
+  // PAT sessions have no refreshToken — cannot be refreshed. Return as-is; if the PAT
+  // is expired/revoked the next SmartThings API call will fail with 401 and the session
+  // will be cleared by the caller.
+  if (!session.refreshToken) return session;
 
   const refreshed = await refreshAccessToken(config, session.refreshToken);
   const nextSession = {

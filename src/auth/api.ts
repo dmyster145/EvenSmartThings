@@ -333,6 +333,16 @@ export function preparePendingAuth(): string {
   return pendingAuthId;
 }
 
+/**
+ * Build the OAuth start URL for a cross-device connect flow (e.g. open on Mac/PC).
+ * The return_to points to auth-complete.html on Vercel (no app_url) so that the
+ * session is delivered via the pending auth poll rather than a direct redirect.
+ */
+export function buildCrossDeviceConnectUrl(pendingAuthId: string): string {
+  const returnTo = `${API_BASE}/auth-complete.html`;
+  return `${API_BASE}/api/auth/smartthings/start?return_to=${encodeURIComponent(returnTo)}&pending_auth_id=${encodeURIComponent(pendingAuthId)}`;
+}
+
 export function startSmartThingsConnect(returnTo?: string, pendingAuthId?: string): void {
   // Use the full origin URL so the OAuth redirect comes back to this exact origin
   // (important when running from localhost in the Even simulator).

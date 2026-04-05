@@ -72,6 +72,7 @@ import {
   executeSceneViaServer,
   getSessionStatus,
   getSmartThingsAccessToken,
+  buildCrossDeviceConnectUrl,
   preparePendingAuth,
   readStoredSessionToken,
   writeStoredSessionToken,
@@ -1023,6 +1024,38 @@ export async function initApp(): Promise<void> {
   const reconnectBtn = document.getElementById('reconnect-smartthings-btn') as HTMLButtonElement | null;
   if (reconnectBtn) {
     reconnectBtn.onclick = () => { void startOAuthConnect(); };
+  }
+
+  // "Open on Mac / Tablet" — generates the OAuth start URL and shows it for the user
+  // to open on another device. The pending auth mechanism delivers the session back
+  // to this device once OAuth completes on the other device.
+  const crossDeviceBtn = document.getElementById('connect-other-device-btn') as HTMLButtonElement | null;
+  const crossDeviceSection = document.getElementById('cross-device-section');
+  const crossDeviceUrlEl = document.getElementById('cross-device-url');
+  const copyUrlBtn = document.getElementById('copy-cross-device-url-btn') as HTMLButtonElement | null;
+
+  if (crossDeviceBtn) {
+    crossDeviceBtn.onclick = async () => {
+      const pendingAuthId = preparePendingAuth();
+      appendDebugLog(`[CrossDevice] Prepared pendingAuthId=${pendingAuthId.slice(0, 8)}… Writing to bridge storage.`);
+      await hub.setLocalStorage(PENDING_AUTH_BRIDGE_KEY, pendingAuthId);
+      const url = buildCrossDeviceConnectUrl(pendingAuthId);
+      if (crossDeviceUrlEl) crossDeviceUrlEl.textContent = url;
+      if (crossDeviceSection) crossDeviceSection.style.display = '';
+      appendDebugLog(`[CrossDevice] URL ready for another device.`);
+    };
+  }
+
+  if (copyUrlBtn && crossDeviceUrlEl) {
+    copyUrlBtn.onclick = () => {
+      const url = crossDeviceUrlEl.textContent ?? '';
+      if (url && navigator.clipboard) {
+        void navigator.clipboard.writeText(url).then(() => {
+          copyUrlBtn.textContent = 'Copied!';
+          setTimeout(() => { copyUrlBtn.textContent = 'Copy link'; }, 2000);
+        });
+      }
+    };
   }
 
   // Wire up refresh button — polls for pending auth and reloads if authenticated.

@@ -564,6 +564,18 @@ export function ConfigShell(): ReactElement {
               <Button id="connect-smartthings-btn" type="button">
                 Connect SmartThings
               </Button>
+              <Button id="connect-other-device-btn" type="button" variant="secondary">
+                Open on Mac / Tablet
+              </Button>
+            </div>
+            <div id="cross-device-section" className="mt-4" style={{ display: 'none' }}>
+              <p className="text-[13px] tracking-[-0.13px] text-text-dim">Open this link on your Mac, PC, or tablet — authorize there, then return here and tap <strong style={{ color: 'inherit' }}>Refresh</strong>.</p>
+              <p id="cross-device-url" className="mt-3 text-[11px] font-mono break-all leading-relaxed text-text" />
+              <div className="btn-group mt-3">
+                <Button id="copy-cross-device-url-btn" type="button" variant="secondary">
+                  Copy link
+                </Button>
+              </div>
             </div>
             <div id="refresh-btn-group" className="btn-group mt-4" style={{ display: 'none' }}>
               <Button id="refresh-session-btn" type="button">
