@@ -1,6 +1,8 @@
 export type SessionStatus = {
   authenticated: boolean;
   configured: boolean;
+  /** True when a session existed but the refresh token was rejected (e.g. expired after 30 days inactivity). */
+  sessionExpired?: boolean;
   redirectUri?: string;
   scopes?: string;
   authorizePath?: string;

@@ -104,6 +104,7 @@ const CONFIG_PANEL_ID = 'config';
 const AUTH_RECONNECT_MESSAGE = 'SmartThings session expired or is unauthorized. Reconnect to continue.';
 const AUTH_CONFIG_MISSING_MESSAGE = 'SmartThings OAuth is not configured on the backend.';
 const AUTH_DISCONNECTED_MESSAGE = 'SmartThings is not connected for this device.';
+const AUTH_SESSION_EXPIRED_MESSAGE = 'Your SmartThings session expired after a period of inactivity. Please reconnect.';
 
 function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -1154,10 +1155,12 @@ export async function initApp(): Promise<void> {
   }
 
   if (!initialSessionStatus.authenticated) {
-    showConnectPanelWithDebug(
-      initialSessionStatus.configured ? AUTH_DISCONNECTED_MESSAGE : AUTH_CONFIG_MISSING_MESSAGE,
-      initialSessionStatus.configured
-    );
+    const disconnectMessage = initialSessionStatus.sessionExpired
+      ? AUTH_SESSION_EXPIRED_MESSAGE
+      : initialSessionStatus.configured
+        ? AUTH_DISCONNECTED_MESSAGE
+        : AUTH_CONFIG_MISSING_MESSAGE;
+    showConnectPanelWithDebug(disconnectMessage, initialSessionStatus.configured);
     return;
   }
 
@@ -2576,10 +2579,12 @@ export async function initApp(): Promise<void> {
           `Resume session status (${reason}). authenticated=${sessionStatus.authenticated} configured=${sessionStatus.configured}`
         );
         if (!sessionStatus.authenticated) {
-          showConnectPanelWithDebug(
-            sessionStatus.configured ? AUTH_DISCONNECTED_MESSAGE : AUTH_CONFIG_MISSING_MESSAGE,
-            sessionStatus.configured
-          );
+          const disconnectMessage = sessionStatus.sessionExpired
+            ? AUTH_SESSION_EXPIRED_MESSAGE
+            : sessionStatus.configured
+              ? AUTH_DISCONNECTED_MESSAGE
+              : AUTH_CONFIG_MISSING_MESSAGE;
+          showConnectPanelWithDebug(disconnectMessage, sessionStatus.configured);
           return;
         }
         initialSessionStatus = sessionStatus;

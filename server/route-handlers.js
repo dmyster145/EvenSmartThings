@@ -182,6 +182,11 @@ function sessionSummary(session) {
   };
 }
 
+// Sentinel returned when a session existed but the refresh token was rejected.
+// Callers that only care about authentication treat this the same as null;
+// handleSessionRequest also surfaces it as sessionExpired: true to the client.
+const REFRESH_EXPIRED = Object.freeze({ __refreshExpired: true });
+
 async function getAuthenticatedSession(request) {
   const cookies = parseCookies(request);
   const sessionId = cookies[config.sessionCookieName] || parseSessionFromBearer(request);
@@ -191,12 +196,12 @@ async function getAuthenticatedSession(request) {
   try {
     session = await ensureFreshSession(config, store, session);
   } catch (err) {
-    // Token refresh failed (e.g. SmartThings rejected the refresh token).
-    // Treat the session as expired so the user is prompted to reconnect
-    // rather than seeing an opaque "service unavailable" 500 error.
+    // Token refresh failed (e.g. refresh token expired after 30 days of inactivity,
+    // or SmartThings rejected it). Clear the dead session and return a sentinel so
+    // the session endpoint can inform the client to show a specific "expired" message.
     console.warn('[smartthings-controls-server] Token refresh failed; clearing session:', err);
     await store.deleteSession(sessionId).catch(() => {});
-    return null;
+    return REFRESH_EXPIRED;
   }
   if (shouldTouchSession(session)) {
     session = (await store.touchSession(sessionId)) ?? session;
@@ -313,9 +318,10 @@ export async function handleSessionRequest(request, response) {
 
     if (request.method === 'GET') {
       const session = await getAuthenticatedSession(request);
-      if (!session) {
+      if (!session || session === REFRESH_EXPIRED) {
         return json(response, 200, {
           authenticated: false,
+          sessionExpired: session === REFRESH_EXPIRED,
           ...serverConfigurationSummary(),
         });
       }
@@ -360,7 +366,7 @@ export async function handleAccessTokenRequest(request, response) {
     applyCors(response, request, config.publicAppUrl);
     if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);
     const session = await getAuthenticatedSession(request);
-    if (!session) {
+    if (!session || session === REFRESH_EXPIRED) {
       return json(response, 401, {
         error: 'Not authenticated',
         ...serverConfigurationSummary(),
@@ -384,7 +390,7 @@ export async function handleSmartThingsExecuteRequest(request, response) {
     applyCors(response, request, config.publicAppUrl);
     if (request.method !== 'POST') return methodNotAllowed(response, ['POST']);
     const session = await getAuthenticatedSession(request);
-    if (!session) {
+    if (!session || session === REFRESH_EXPIRED) {
       return json(response, 401, {
         error: 'Not authenticated',
         ...serverConfigurationSummary(),
