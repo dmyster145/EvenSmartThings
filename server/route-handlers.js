@@ -112,8 +112,8 @@ function getSmartAppInitializeResponse() {
   return {
     configurationData: {
       initialize: {
-        name: 'SmartThings Controls',
-        description: 'SmartThings Controls for Even Realities G2 glasses',
+        name: 'SmartThings Control',
+        description: 'SmartThings Control for Even Realities G2 glasses',
         id: 'smartthings-controls',
         permissions: [],
         firstPageId: 'main',
@@ -127,7 +127,7 @@ function getSmartAppPageResponse(pageId) {
     configurationData: {
       page: {
         pageId: pageId || 'main',
-        name: 'SmartThings Controls',
+        name: 'SmartThings Control',
         nextPageId: null,
         previousPageId: null,
         complete: true,
@@ -581,9 +581,18 @@ export async function handleAuthCallbackRequest(request, response) {
     const state = url.searchParams.get('state');
     if (!code || !state) {
       // No code/state — user likely denied/cancelled the SmartThings authorization,
-      // or the callback was hit without OAuth params (e.g. a bare prefetch).
-      // Redirect to auth-complete.html so the user sees a friendly page instead
-      // of a raw JSON error.
+      // or the callback was hit without OAuth params (e.g. a bare prefetch, or the
+      // SmartThings native app intercepted the authorize URL via Universal Links and
+      // redirected back without forwarding the authorization code).
+      const allParams = Object.fromEntries(url.searchParams.entries());
+      const ua = (typeof request.headers['user-agent'] === 'string' ? request.headers['user-agent'] : '').slice(0, 200) || 'none';
+      const referer = (typeof request.headers['referer'] === 'string' ? request.headers['referer'] : '').slice(0, 200) || 'none';
+      console.warn(
+        '[smartthings-controls-server] OAuth callback: missing code or state.' +
+        ' params=' + JSON.stringify(allParams) +
+        ' ua=' + ua +
+        ' referer=' + referer
+      );
       const fallbackUrl = `${config.publicAppUrl}/auth-complete.html`;
       return redirect(response, fallbackUrl);
     }

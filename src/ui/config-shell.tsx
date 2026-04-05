@@ -22,6 +22,9 @@ import {
   IcStatusSaved,
 } from 'even-toolkit/web/icons/svg-icons';
 
+declare const __APP_VERSION__: string;
+const APP_VERSION: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+
 type ListOrderKey = 'main' | 'scenes' | 'rooms' | 'devices' | 'favorites';
 type CompanionTab = 'overview' | 'organize' | 'connection';
 type CompanionIconKey = 'home' | 'hub' | 'settings' | 'saved' | 'alert' | 'info' | 'scroll' | 'trash';
@@ -164,7 +167,7 @@ function IntroCard(): ReactElement {
           </span>
           <div>
             <p className="text-[11px] tracking-[-0.11px] uppercase text-text-dim">Even Hub Companion</p>
-            <h1 className="text-[20px] tracking-[-0.6px] font-normal text-text">SmartThings Controls</h1>
+            <h1 className="text-[20px] tracking-[-0.6px] font-normal text-text">SmartThings Control</h1>
           </div>
         </div>
         <Badge variant="accent">Companion</Badge>
@@ -604,6 +607,10 @@ export function ConfigShell(): ReactElement {
         </div>
 
         <div id="config-toast" className="toast" role="status" aria-live="polite" style={{ display: 'none' }} />
+
+        <p className="mt-6 text-center text-[11px] tracking-[-0.11px] text-black">
+          v{APP_VERSION}
+        </p>
       </Page>
     </AppShell>
   );
