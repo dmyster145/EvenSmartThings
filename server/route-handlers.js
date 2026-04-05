@@ -590,20 +590,34 @@ export async function handleAuthCallbackRequest(request, response) {
 
     const oauthState = await store.consumeOAuthState(state);
     if (!oauthState) {
-      // State not found — either expired or already consumed by a prior request.
-      // Some WebViews (e.g. Mulch on /e/OS) issue a speculative prefetch of the callback
-      // URL before the main navigation, consuming the state on the first hit. The session
-      // was likely already created on that first hit, so redirecting to auth-complete.html
-      // lets the user recover via the Refresh button rather than seeing a raw JSON error.
+      // State not found — expired or never created.
+      console.warn('[smartthings-controls-server] OAuth callback: state not found in Redis. state=' + state.slice(0, 8) + '…');
       const fallbackUrl = `${config.publicAppUrl}/auth-complete.html`;
       return redirect(response, fallbackUrl);
     }
 
-    const tokenSet = await exchangeAuthorizationCode(config, code);
+    console.log('[smartthings-controls-server] OAuth callback: state found. pendingAuthId=' + (oauthState.pendingAuthId ? oauthState.pendingAuthId.slice(0, 8) + '…' : 'none'));
+
+    let tokenSet;
+    try {
+      tokenSet = await exchangeAuthorizationCode(config, code);
+    } catch (err) {
+      // Code exchange failed — most likely the authorization code was already used
+      // by a prior request (e.g. speculative prefetch). If pendingAuth was set by
+      // that prior request the user can still recover via the Refresh button.
+      console.warn('[smartthings-controls-server] OAuth callback: code exchange failed (code may have been used by a prior request):', err instanceof Error ? err.message : err);
+      const fallbackUrl = `${config.publicAppUrl}/auth-complete.html`;
+      return redirect(response, fallbackUrl);
+    }
+
     const session = await store.createSession(tokenSet);
     if (oauthState.pendingAuthId) {
       await store.setPendingAuth(oauthState.pendingAuthId, session.sessionId);
+      console.log('[smartthings-controls-server] OAuth callback: pendingAuth set. pendingAuthId=' + oauthState.pendingAuthId.slice(0, 8) + '…');
     }
+    // State successfully processed — delete it now to prevent reuse.
+    await store.deleteOAuthState(state);
+
     const cookieOptions = getSessionCookieOptions(request);
     const returnToBase = normalizeReturnTo(oauthState.returnTo);
     // Append the session ID as a URL param so cross-origin webviews can pick it up
@@ -611,6 +625,7 @@ export async function handleAuthCallbackRequest(request, response) {
     const separator = returnToBase.includes('?') ? '&' : '?';
     const redirectTarget = `${returnToBase}${separator}_st=${encodeURIComponent(session.sessionId)}`;
     setSessionCookie(response, config.sessionCookieName, session.sessionId, cookieOptions);
+    console.log('[smartthings-controls-server] OAuth callback: session created and redirect sent. sessionId=' + session.sessionId.slice(0, 8) + '…');
     return redirect(response, redirectTarget);
   } catch (err) {
     return sendServerError(response, err);

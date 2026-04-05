@@ -77,9 +77,15 @@ class FileSessionStore {
     const store = await loadStore(this.filePath);
     const entry = store.oauthStates[stateId];
     if (!entry) return null;
+    // Non-destructive read — caller must call deleteOAuthState after processing.
+    return entry;
+  }
+
+  async deleteOAuthState(stateId) {
+    const store = await loadStore(this.filePath);
+    if (!store.oauthStates[stateId]) return;
     delete store.oauthStates[stateId];
     await saveStore(this.filePath, store);
-    return entry;
   }
 
   async createSession(sessionData) {
@@ -155,6 +161,10 @@ class UnsupportedSessionStore {
   }
 
   async consumeOAuthState() {
+    throw new Error(this.message);
+  }
+
+  async deleteOAuthState() {
     throw new Error(this.message);
   }
 
@@ -283,8 +293,17 @@ class RedisSessionStore {
 
   async consumeOAuthState(stateId) {
     if (!stateId) return null;
-    const raw = await this.runCommand('GETDEL', getOauthStateKey(this.config, stateId));
+    // Non-destructive read — use GET so that a speculative prefetch or network
+    // retry hitting the callback URL before the real navigation does not consume
+    // the state and prevent setPendingAuth from being called. The caller must
+    // call deleteOAuthState after successfully processing the callback.
+    const raw = await this.runCommand('GET', getOauthStateKey(this.config, stateId));
     return parseRecord(raw);
+  }
+
+  async deleteOAuthState(stateId) {
+    if (!stateId) return;
+    await this.runCommand('DEL', getOauthStateKey(this.config, stateId));
   }
 
   async createSession(sessionData) {
