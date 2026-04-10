@@ -101,10 +101,27 @@ import { getStoredPreferences, setStoredPreferences } from './state/preferences-
 import { ImageRawDataUpdate, OsEventTypeList, StartUpPageCreateResult, type EvenHubEvent } from '@evenrealities/even_hub_sdk';
 
 const CONFIG_PANEL_ID = 'config';
+const DEMO_ROOM_ID = '__demo__';
 const AUTH_RECONNECT_MESSAGE = 'SmartThings session expired or is unauthorized. Reconnect to continue.';
 const AUTH_CONFIG_MISSING_MESSAGE = 'SmartThings OAuth is not configured on the backend.';
 const AUTH_DISCONNECTED_MESSAGE = 'SmartThings is not connected for this device.';
 const AUTH_SESSION_EXPIRED_MESSAGE = 'Your SmartThings session expired after a period of inactivity. Please reconnect.';
+
+const DEMO_DEVICES: DeviceEntry[] = [
+  { deviceId: 'demo-switch', deviceName: 'Demo: Switch', deviceType: 'Switch', deviceProtocol: 'Demo', supportsSwitch: true },
+  { deviceId: 'demo-dimmer', deviceName: 'Demo: Dimmer', deviceType: 'Dimmer Switch', deviceProtocol: 'Demo', supportsSwitch: true, supportsDimmer: true },
+  { deviceId: 'demo-color-bulb', deviceName: 'Demo: Color Bulb', deviceType: 'Color Bulb', deviceProtocol: 'Demo', supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true },
+  { deviceId: 'demo-garage', deviceName: 'Demo: Garage Door', deviceType: 'Garage Door', deviceProtocol: 'Demo', supportsGarageDoor: true },
+  { deviceId: 'demo-lock', deviceName: 'Demo: Lock', deviceType: 'Lock', deviceProtocol: 'Demo', supportsLock: true },
+  { deviceId: 'demo-sonos', deviceName: 'Demo: Sonos Speaker', deviceType: 'Speaker', deviceProtocol: 'Demo', supportsMediaPlayback: true, supportsAudioVolume: true, supportsAudioMute: true, supportsMediaTrackControl: true },
+  { deviceId: 'demo-tv', deviceName: 'Demo: Samsung TV', deviceType: 'Television', deviceProtocol: 'Demo', supportsSwitch: true, supportsTvChannel: true, supportsAudioVolume: true, supportsAudioMute: true },
+  { deviceId: 'demo-shade', deviceName: 'Demo: Window Shade', deviceType: 'Window Treatment', deviceProtocol: 'Demo', supportsWindowShade: true },
+  { deviceId: 'demo-valve', deviceName: 'Demo: Valve', deviceType: 'Valve', deviceProtocol: 'Demo', supportsValve: true },
+  { deviceId: 'demo-alarm', deviceName: 'Demo: Alarm Siren', deviceType: 'Alarm', deviceProtocol: 'Demo', supportsAlarm: true },
+  { deviceId: 'demo-thermostat', deviceName: 'Demo: Thermostat', deviceType: 'Thermostat', deviceProtocol: 'Demo', supportsThermostatMode: true, supportsThermostatHeatingSetpoint: true, supportsThermostatCoolingSetpoint: true },
+  { deviceId: 'demo-fan', deviceName: 'Demo: Fan', deviceType: 'Fan', deviceProtocol: 'Demo', supportsSwitch: true, supportsFanSpeed: true },
+  { deviceId: 'demo-doorbell', deviceName: 'Demo: Doorbell', deviceType: 'Button', deviceProtocol: 'Demo', supportsMomentary: true },
+];
 
 function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -1247,10 +1264,13 @@ export async function initApp(): Promise<void> {
       ]);
       store.dispatch({
         type: 'ROOMS_LOADED',
-        rooms: roomsRes.map((r) => ({
-          roomId: r.roomId ?? '',
-          roomName: (r.name ?? 'Room').slice(0, SCENE_NAME_MAX_LEN),
-        })),
+        rooms: [
+          ...roomsRes.map((r) => ({
+            roomId: r.roomId ?? '',
+            roomName: (r.name ?? 'Room').slice(0, SCENE_NAME_MAX_LEN),
+          })),
+          { roomId: DEMO_ROOM_ID, roomName: 'Demo Devices' },
+        ],
       });
       store.dispatch({ type: 'ALL_DEVICES_LOADED', devices: normalizeDevices(devicesRes) });
     } catch (err) {
@@ -2056,6 +2076,11 @@ export async function initApp(): Promise<void> {
   }
 
   async function loadDevicesForRoom(roomId: string): Promise<void> {
+    if (roomId === DEMO_ROOM_ID) {
+      store.dispatch({ type: 'DEVICES_LOADED', devices: DEMO_DEVICES });
+      refreshPage();
+      return;
+    }
     try {
       const locationId = await getLocationId();
       const devices = await withSmartThingsClient((client) => client.rooms.listDevices(roomId, locationId));
