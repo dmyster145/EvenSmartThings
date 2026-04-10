@@ -81,11 +81,25 @@ function simulateTapActions(device: DeviceEntry): Array<{ index: number; action:
     actions.push({ index: idx + 1, action: 'ch_down' });
     idx += 2;
   }
+  if (device.supportsMediaInputSource) {
+    actions.push({ index: idx,     action: 'input_hdmi1' });
+    actions.push({ index: idx + 1, action: 'input_hdmi2' });
+    actions.push({ index: idx + 2, action: 'input_hdmi3' });
+    actions.push({ index: idx + 3, action: 'input_tv' });
+    actions.push({ index: idx + 4, action: 'input_optical' });
+    actions.push({ index: idx + 5, action: 'input_bt' });
+    idx += 6;
+  }
   if (device.supportsWindowShade) {
     actions.push({ index: idx, action: 'shade_open' });
     actions.push({ index: idx + 1, action: 'shade_close' });
     actions.push({ index: idx + 2, action: 'shade_pause' });
     idx += 3;
+  }
+  if (device.supportsWindowShadeLevel) {
+    actions.push({ index: idx, action: 'shade_plus' });
+    actions.push({ index: idx + 1, action: 'shade_minus' });
+    idx += 2;
   }
   if (device.supportsValve) {
     actions.push({ index: idx, action: 'valve_open' });
@@ -108,6 +122,7 @@ function simulateTapActions(device: DeviceEntry): Array<{ index: number; action:
     idx += 5;
   }
   if (device.supportsThermostatHeatingSetpoint) {
+
     actions.push({ index: idx, action: 'heat_plus' });
     actions.push({ index: idx + 1, action: 'heat_minus' });
     idx += 2;
@@ -117,6 +132,13 @@ function simulateTapActions(device: DeviceEntry): Array<{ index: number; action:
     actions.push({ index: idx + 1, action: 'cool_minus' });
     idx += 2;
   }
+  if (device.supportsThermostatFanMode) {
+    actions.push({ index: idx,     action: 'fan_mode_auto' });
+    actions.push({ index: idx + 1, action: 'fan_mode_on' });
+    actions.push({ index: idx + 2, action: 'fan_mode_circ' });
+    actions.push({ index: idx + 3, action: 'fan_mode_sched' });
+    idx += 4;
+  }
   if (device.supportsFanSpeed) {
     actions.push({ index: idx, action: 'fan_plus' });
     actions.push({ index: idx + 1, action: 'fan_minus' });
@@ -125,6 +147,11 @@ function simulateTapActions(device: DeviceEntry): Array<{ index: number; action:
   if (device.supportsColorTemperature) {
     actions.push({ index: idx, action: 'cooler' });
     actions.push({ index: idx + 1, action: 'warmer' });
+    idx += 2;
+  }
+  if (device.supportsColorMode) {
+    actions.push({ index: idx, action: 'color_mode_ct' });
+    actions.push({ index: idx + 1, action: 'color_mode_color' });
     idx += 2;
   }
   if (device.supportsColorControl) {
@@ -211,8 +238,18 @@ describe('deviceDetailItemNames — individual capabilities', () => {
     expect(deviceDetailItemNames(makeState({ supportsTvChannel: true }))).toEqual([BACK, 'Ch+', 'Ch-']);
   });
 
+  it('mediaInputSource: 6 named inputs', () => {
+    expect(deviceDetailItemNames(makeState({ supportsMediaInputSource: true }))).toEqual([
+      BACK, 'HDMI 1', 'HDMI 2', 'HDMI 3', 'TV', 'Optical', 'BT',
+    ]);
+  });
+
   it('windowShade: Open / Close / Pause (3 actions)', () => {
     expect(deviceDetailItemNames(makeState({ supportsWindowShade: true }))).toEqual([BACK, 'Open', 'Close', 'Pause']);
+  });
+
+  it('windowShadeLevel: Shade + / Shade -', () => {
+    expect(deviceDetailItemNames(makeState({ supportsWindowShadeLevel: true }))).toEqual([BACK, 'Shade +', 'Shade -']);
   });
 
   it('valve: Open / Close', () => {
@@ -225,6 +262,10 @@ describe('deviceDetailItemNames — individual capabilities', () => {
 
   it('thermostatMode: Heat / Cool / Auto / Off / Emrg Heat (5 actions)', () => {
     expect(deviceDetailItemNames(makeState({ supportsThermostatMode: true }))).toEqual([BACK, 'Heat', 'Cool', 'Auto', 'Off', 'Emrg Heat']);
+  });
+
+  it('thermostatFanMode: Fan Auto / Fan On / Fan Circ / Fan Sched (4 actions)', () => {
+    expect(deviceDetailItemNames(makeState({ supportsThermostatFanMode: true }))).toEqual([BACK, 'Fan Auto', 'Fan On', 'Fan Circ', 'Fan Sched']);
   });
 
   it('thermostatHeatingSetpoint: Heat + / Heat -', () => {
@@ -241,6 +282,10 @@ describe('deviceDetailItemNames — individual capabilities', () => {
 
   it('colorTemperature: Cooler / Warmer', () => {
     expect(deviceDetailItemNames(makeState({ supportsColorTemperature: true }))).toEqual([BACK, 'Cooler', 'Warmer']);
+  });
+
+  it('colorMode: CT Mode / Color Mode', () => {
+    expect(deviceDetailItemNames(makeState({ supportsColorMode: true }))).toEqual([BACK, 'CT Mode', 'Color Mode']);
   });
 
   it('colorControl: 8 named color presets', () => {
@@ -272,18 +317,48 @@ describe('deviceDetailItemNames — realistic devices', () => {
     expect(items).toEqual([BACK, 'On', 'Off', 'Cooler', 'Warmer', 'Dim']);
   });
 
-  it('RGB color bulb (switch + dimmer + colorTemperature + colorControl)', () => {
+  it('RGB color bulb (switch + dimmer + colorTemperature + colorMode + colorControl)', () => {
     const items = deviceDetailItemNames(makeState({
       supportsSwitch: true,
       supportsDimmer: true,
       supportsColorTemperature: true,
+      supportsColorMode: true,
       supportsColorControl: true,
     }));
     expect(items).toEqual([
-      BACK, 'On', 'Off', 'Cooler', 'Warmer',
+      BACK, 'On', 'Off', 'Cooler', 'Warmer', 'CT Mode', 'Color Mode',
       'Red', 'Orange', 'Yellow', 'Green', 'Cyan', 'Blue', 'Purple', 'Pink',
       'Dim',
     ]);
+  });
+
+  it('Samsung TV (switch + tvChannel + mediaInputSource + audioVolume + audioMute)', () => {
+    const items = deviceDetailItemNames(makeState({
+      supportsSwitch: true,
+      supportsTvChannel: true,
+      supportsMediaInputSource: true,
+      supportsAudioVolume: true,
+      supportsAudioMute: true,
+    }));
+    expect(items).toEqual([BACK, 'On', 'Off', 'Vol +', 'Vol -', 'Mute', 'Unmute', 'Ch+', 'Ch-', 'HDMI 1', 'HDMI 2', 'HDMI 3', 'TV', 'Optical', 'BT']);
+  });
+
+  it('smart blind (windowShade + windowShadeLevel)', () => {
+    const items = deviceDetailItemNames(makeState({
+      supportsWindowShade: true,
+      supportsWindowShadeLevel: true,
+    }));
+    expect(items).toEqual([BACK, 'Open', 'Close', 'Pause', 'Shade +', 'Shade -']);
+  });
+
+  it('full thermostat (mode + setpoints + fan mode)', () => {
+    const items = deviceDetailItemNames(makeState({
+      supportsThermostatMode: true,
+      supportsThermostatHeatingSetpoint: true,
+      supportsThermostatCoolingSetpoint: true,
+      supportsThermostatFanMode: true,
+    }));
+    expect(items).toEqual([BACK, 'Heat', 'Cool', 'Auto', 'Off', 'Emrg Heat', 'Heat +', 'Heat -', 'Cool +', 'Cool -', 'Fan Auto', 'Fan On', 'Fan Circ', 'Fan Sched']);
   });
 
   it('Sonos speaker (switch + mediaPlayback + audioVolume + audioMute + mediaTrackControl)', () => {
@@ -387,16 +462,22 @@ describe('TAP index consistency', () => {
   checkConsistency({ supportsAudioMute: true }, 'audioMute');
   checkConsistency({ supportsMediaTrackControl: true }, 'mediaTrackControl');
   checkConsistency({ supportsTvChannel: true }, 'tvChannel');
+  checkConsistency({ supportsMediaInputSource: true }, 'mediaInputSource');
   checkConsistency({ supportsWindowShade: true }, 'windowShade');
+  checkConsistency({ supportsWindowShadeLevel: true }, 'windowShadeLevel');
+  checkConsistency({ supportsWindowShade: true, supportsWindowShadeLevel: true }, 'shade-with-level');
   checkConsistency({ supportsValve: true }, 'valve');
   checkConsistency({ supportsAlarm: true }, 'alarm');
   checkConsistency({ supportsThermostatMode: true }, 'thermostatMode');
   checkConsistency({ supportsThermostatHeatingSetpoint: true }, 'heatingSetpoint');
   checkConsistency({ supportsThermostatCoolingSetpoint: true }, 'coolingSetpoint');
+  checkConsistency({ supportsThermostatFanMode: true }, 'thermostatFanMode');
+  checkConsistency({ supportsThermostatMode: true, supportsThermostatHeatingSetpoint: true, supportsThermostatCoolingSetpoint: true, supportsThermostatFanMode: true }, 'thermostat-with-fan');
   checkConsistency({ supportsFanSpeed: true }, 'fanSpeed');
   checkConsistency({ supportsColorTemperature: true }, 'colorTemperature');
+  checkConsistency({ supportsColorMode: true }, 'colorMode');
   checkConsistency({ supportsColorControl: true }, 'colorControl');
-  checkConsistency({ supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true, supportsColorControl: true }, 'rgb-bulb');
+  checkConsistency({ supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true, supportsColorMode: true, supportsColorControl: true }, 'rgb-bulb');
   checkConsistency({ supportsMomentary: true }, 'momentary');
 
   // Multi-capability consistency
@@ -441,10 +522,11 @@ describe('deviceDetailItemNames — edge cases', () => {
       supportsSwitch: true, supportsDimmer: true, supportsGarageDoor: true,
       supportsLock: true, supportsMediaPlayback: true, supportsAudioVolume: true,
       supportsAudioMute: true, supportsMediaTrackControl: true, supportsTvChannel: true,
-      supportsWindowShade: true, supportsValve: true, supportsAlarm: true,
+      supportsMediaInputSource: true, supportsWindowShade: true, supportsWindowShadeLevel: true,
+      supportsValve: true, supportsAlarm: true,
       supportsThermostatMode: true, supportsThermostatHeatingSetpoint: true,
-      supportsThermostatCoolingSetpoint: true, supportsFanSpeed: true,
-      supportsColorTemperature: true, supportsColorControl: true, supportsMomentary: true,
+      supportsThermostatCoolingSetpoint: true, supportsThermostatFanMode: true, supportsFanSpeed: true,
+      supportsColorTemperature: true, supportsColorMode: true, supportsColorControl: true, supportsMomentary: true,
     };
     const device: DeviceEntry = { deviceId: 'd1', deviceName: 'All', ...allFlags };
     const actions = simulateTapActions(device);
@@ -458,10 +540,11 @@ describe('deviceDetailItemNames — edge cases', () => {
       supportsSwitch: true, supportsDimmer: true, supportsGarageDoor: true,
       supportsLock: true, supportsMediaPlayback: true, supportsAudioVolume: true,
       supportsAudioMute: true, supportsMediaTrackControl: true, supportsTvChannel: true,
-      supportsWindowShade: true, supportsValve: true, supportsAlarm: true,
+      supportsMediaInputSource: true, supportsWindowShade: true, supportsWindowShadeLevel: true,
+      supportsValve: true, supportsAlarm: true,
       supportsThermostatMode: true, supportsThermostatHeatingSetpoint: true,
-      supportsThermostatCoolingSetpoint: true, supportsFanSpeed: true,
-      supportsColorTemperature: true, supportsColorControl: true, supportsMomentary: true,
+      supportsThermostatCoolingSetpoint: true, supportsThermostatFanMode: true, supportsFanSpeed: true,
+      supportsColorTemperature: true, supportsColorMode: true, supportsColorControl: true, supportsMomentary: true,
     };
     const device: DeviceEntry = { deviceId: 'd1', deviceName: 'All', ...allFlags };
     const actions = simulateTapActions(device);

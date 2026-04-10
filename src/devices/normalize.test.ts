@@ -12,14 +12,18 @@ import {
   deviceSupportsAudioMute,
   deviceSupportsMediaTrackControl,
   deviceSupportsTvChannel,
+  deviceSupportsMediaInputSource,
   deviceSupportsWindowShade,
+  deviceSupportsWindowShadeLevel,
   deviceSupportsValve,
   deviceSupportsAlarm,
   deviceSupportsThermostatMode,
   deviceSupportsThermostatHeatingSetpoint,
   deviceSupportsThermostatCoolingSetpoint,
+  deviceSupportsThermostatFanMode,
   deviceSupportsFanSpeed,
   deviceSupportsColorTemperature,
+  deviceSupportsColorMode,
   deviceSupportsColorControl,
   deviceSupportsMomentary,
   deviceTypeDisplayName,
@@ -176,12 +180,30 @@ describe('capability detectors', () => {
     });
   });
 
+  describe('deviceSupportsMediaInputSource', () => {
+    it('returns true for mediaInputSource', () => {
+      expect(deviceSupportsMediaInputSource(makeDevice(['mediaInputSource']))).toBe(true);
+    });
+    it('is not triggered by mediaPlayback alone', () => {
+      expect(deviceSupportsMediaInputSource(makeDevice(['mediaPlayback']))).toBe(false);
+    });
+  });
+
   describe('deviceSupportsWindowShade', () => {
     it('returns true for windowShade', () => {
       expect(deviceSupportsWindowShade(makeDevice(['windowShade']))).toBe(true);
     });
     it('is not triggered by windowShadeLevel alone', () => {
       expect(deviceSupportsWindowShade(makeDevice(['windowShadeLevel']))).toBe(false);
+    });
+  });
+
+  describe('deviceSupportsWindowShadeLevel', () => {
+    it('returns true for windowShadeLevel', () => {
+      expect(deviceSupportsWindowShadeLevel(makeDevice(['windowShadeLevel']))).toBe(true);
+    });
+    it('is not triggered by windowShade alone', () => {
+      expect(deviceSupportsWindowShadeLevel(makeDevice(['windowShade']))).toBe(false);
     });
   });
 
@@ -233,6 +255,18 @@ describe('capability detectors', () => {
     });
   });
 
+  describe('deviceSupportsThermostatFanMode', () => {
+    it('returns true for thermostatFanMode', () => {
+      expect(deviceSupportsThermostatFanMode(makeDevice(['thermostatFanMode']))).toBe(true);
+    });
+    it('returns true for the mega thermostat capability', () => {
+      expect(deviceSupportsThermostatFanMode(makeDevice(['thermostat']))).toBe(true);
+    });
+    it('returns false for thermostatMode alone', () => {
+      expect(deviceSupportsThermostatFanMode(makeDevice(['thermostatMode']))).toBe(false);
+    });
+  });
+
   describe('deviceSupportsFanSpeed', () => {
     it('returns true for fanSpeed', () => {
       expect(deviceSupportsFanSpeed(makeDevice(['fanSpeed']))).toBe(true);
@@ -242,6 +276,15 @@ describe('capability detectors', () => {
   describe('deviceSupportsColorTemperature', () => {
     it('returns true for colorTemperature', () => {
       expect(deviceSupportsColorTemperature(makeDevice(['colorTemperature']))).toBe(true);
+    });
+  });
+
+  describe('deviceSupportsColorMode', () => {
+    it('returns true for colorMode', () => {
+      expect(deviceSupportsColorMode(makeDevice(['colorMode']))).toBe(true);
+    });
+    it('is not triggered by colorControl alone', () => {
+      expect(deviceSupportsColorMode(makeDevice(['colorControl']))).toBe(false);
     });
   });
 
@@ -406,8 +449,14 @@ describe('normalizeDevices', () => {
     it('sets supportsTvChannel for tvChannel', () => {
       expect(normalizeDevices([makeDevice(['tvChannel'])])[0].supportsTvChannel).toBe(true);
     });
+    it('sets supportsMediaInputSource for mediaInputSource', () => {
+      expect(normalizeDevices([makeDevice(['mediaInputSource'])])[0].supportsMediaInputSource).toBe(true);
+    });
     it('sets supportsWindowShade for windowShade', () => {
       expect(normalizeDevices([makeDevice(['windowShade'])])[0].supportsWindowShade).toBe(true);
+    });
+    it('sets supportsWindowShadeLevel for windowShadeLevel', () => {
+      expect(normalizeDevices([makeDevice(['windowShadeLevel'])])[0].supportsWindowShadeLevel).toBe(true);
     });
     it('sets supportsValve for valve', () => {
       expect(normalizeDevices([makeDevice(['valve'])])[0].supportsValve).toBe(true);
@@ -430,11 +479,20 @@ describe('normalizeDevices', () => {
     it('sets supportsThermostatCoolingSetpoint for thermostatCoolingSetpoint', () => {
       expect(normalizeDevices([makeDevice(['thermostatCoolingSetpoint'])])[0].supportsThermostatCoolingSetpoint).toBe(true);
     });
+    it('sets supportsThermostatFanMode for thermostatFanMode', () => {
+      expect(normalizeDevices([makeDevice(['thermostatFanMode'])])[0].supportsThermostatFanMode).toBe(true);
+    });
+    it('sets supportsThermostatFanMode for mega thermostat capability', () => {
+      expect(normalizeDevices([makeDevice(['thermostat'])])[0].supportsThermostatFanMode).toBe(true);
+    });
     it('sets supportsFanSpeed for fanSpeed', () => {
       expect(normalizeDevices([makeDevice(['fanSpeed'])])[0].supportsFanSpeed).toBe(true);
     });
     it('sets supportsColorTemperature for colorTemperature', () => {
       expect(normalizeDevices([makeDevice(['colorTemperature'])])[0].supportsColorTemperature).toBe(true);
+    });
+    it('sets supportsColorMode for colorMode', () => {
+      expect(normalizeDevices([makeDevice(['colorMode'])])[0].supportsColorMode).toBe(true);
     });
     it('sets supportsColorControl for colorControl', () => {
       expect(normalizeDevices([makeDevice(['colorControl'])])[0].supportsColorControl).toBe(true);
@@ -454,14 +512,18 @@ describe('normalizeDevices', () => {
       expect(entry.supportsAudioMute).toBe(false);
       expect(entry.supportsMediaTrackControl).toBe(false);
       expect(entry.supportsTvChannel).toBe(false);
+      expect(entry.supportsMediaInputSource).toBe(false);
       expect(entry.supportsWindowShade).toBe(false);
+      expect(entry.supportsWindowShadeLevel).toBe(false);
       expect(entry.supportsValve).toBe(false);
       expect(entry.supportsAlarm).toBe(false);
       expect(entry.supportsThermostatMode).toBe(false);
       expect(entry.supportsThermostatHeatingSetpoint).toBe(false);
       expect(entry.supportsThermostatCoolingSetpoint).toBe(false);
+      expect(entry.supportsThermostatFanMode).toBe(false);
       expect(entry.supportsFanSpeed).toBe(false);
       expect(entry.supportsColorTemperature).toBe(false);
+      expect(entry.supportsColorMode).toBe(false);
       expect(entry.supportsColorControl).toBe(false);
       expect(entry.supportsMomentary).toBe(false);
     });

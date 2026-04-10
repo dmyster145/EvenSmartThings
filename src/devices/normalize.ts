@@ -24,7 +24,9 @@ export function deviceSupportsAudioVolume(d: Device): boolean { return hasCapabi
 export function deviceSupportsAudioMute(d: Device): boolean { return hasCapability(d, 'audioMute'); }
 export function deviceSupportsMediaTrackControl(d: Device): boolean { return hasCapability(d, 'mediaTrackControl'); }
 export function deviceSupportsTvChannel(d: Device): boolean { return hasCapability(d, 'tvChannel'); }
+export function deviceSupportsMediaInputSource(d: Device): boolean { return hasCapability(d, 'mediaInputSource'); }
 export function deviceSupportsWindowShade(d: Device): boolean { return hasCapability(d, 'windowShade'); }
+export function deviceSupportsWindowShadeLevel(d: Device): boolean { return hasCapability(d, 'windowShadeLevel'); }
 export function deviceSupportsValve(d: Device): boolean { return hasCapability(d, 'valve'); }
 export function deviceSupportsAlarm(d: Device): boolean { return hasCapability(d, 'alarm'); }
 /** thermostatMode OR the mega thermostat capability */
@@ -34,7 +36,10 @@ export function deviceSupportsThermostatHeatingSetpoint(d: Device): boolean { re
 /** thermostatCoolingSetpoint OR the mega thermostat capability */
 export function deviceSupportsThermostatCoolingSetpoint(d: Device): boolean { return hasCapability(d, 'thermostatCoolingSetpoint', 'thermostat'); }
 export function deviceSupportsFanSpeed(d: Device): boolean { return hasCapability(d, 'fanSpeed'); }
+/** thermostatFanMode OR the mega thermostat capability */
+export function deviceSupportsThermostatFanMode(d: Device): boolean { return hasCapability(d, 'thermostatFanMode', 'thermostat'); }
 export function deviceSupportsColorTemperature(d: Device): boolean { return hasCapability(d, 'colorTemperature'); }
+export function deviceSupportsColorMode(d: Device): boolean { return hasCapability(d, 'colorMode'); }
 export function deviceSupportsColorControl(d: Device): boolean { return hasCapability(d, 'colorControl'); }
 export function deviceSupportsMomentary(d: Device): boolean { return hasCapability(d, 'momentary'); }
 
@@ -88,14 +93,18 @@ export function normalizeDevices(devices: Device[]): DeviceEntry[] {
     supportsAudioMute: deviceSupportsAudioMute(d),
     supportsMediaTrackControl: deviceSupportsMediaTrackControl(d),
     supportsTvChannel: deviceSupportsTvChannel(d),
+    supportsMediaInputSource: deviceSupportsMediaInputSource(d),
     supportsWindowShade: deviceSupportsWindowShade(d),
+    supportsWindowShadeLevel: deviceSupportsWindowShadeLevel(d),
     supportsValve: deviceSupportsValve(d),
     supportsAlarm: deviceSupportsAlarm(d),
     supportsThermostatMode: deviceSupportsThermostatMode(d),
     supportsThermostatHeatingSetpoint: deviceSupportsThermostatHeatingSetpoint(d),
     supportsThermostatCoolingSetpoint: deviceSupportsThermostatCoolingSetpoint(d),
+    supportsThermostatFanMode: deviceSupportsThermostatFanMode(d),
     supportsFanSpeed: deviceSupportsFanSpeed(d),
     supportsColorTemperature: deviceSupportsColorTemperature(d),
+    supportsColorMode: deviceSupportsColorMode(d),
     supportsColorControl: deviceSupportsColorControl(d),
     supportsMomentary: deviceSupportsMomentary(d),
   }));

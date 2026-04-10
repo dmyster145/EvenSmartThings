@@ -46,8 +46,16 @@ export interface DeviceEntry {
   supportsThermostatCoolingSetpoint?: boolean;
   /** True if device has fanSpeed capability (speed +/-). */
   supportsFanSpeed?: boolean;
+  /** True if device has windowShadeLevel capability (precise shade position 0–100). */
+  supportsWindowShadeLevel?: boolean;
+  /** True if device has mediaInputSource capability (HDMI/optical/bluetooth input selection). */
+  supportsMediaInputSource?: boolean;
+  /** True if device has thermostatFanMode capability (fan auto/on/circulate/schedule). */
+  supportsThermostatFanMode?: boolean;
   /** True if device has colorTemperature capability (warmer/cooler). */
   supportsColorTemperature?: boolean;
+  /** True if device has colorMode capability (CT vs COLOR mode switch). */
+  supportsColorMode?: boolean;
   /** True if device has colorControl capability (hue/saturation presets). */
   supportsColorControl?: boolean;
   /** True if device has momentary capability (push). */
