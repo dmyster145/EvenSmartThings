@@ -361,6 +361,7 @@ export function deviceDetailItemNames(state: AppState): string[] {
   if (device?.supportsThermostatCoolingSetpoint) items.push('Cool +', 'Cool -');
   if (device?.supportsFanSpeed) items.push('Speed +', 'Speed -');
   if (device?.supportsColorTemperature) items.push('Cooler', 'Warmer');
+  if (device?.supportsColorControl) items.push('Red', 'Orange', 'Yellow', 'Green', 'Cyan', 'Blue', 'Purple', 'Pink');
   if (device?.supportsMomentary) items.push('Push');
   if (device?.supportsDimmer) items.push('Dim');
   return items;

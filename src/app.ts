@@ -110,7 +110,8 @@ const AUTH_SESSION_EXPIRED_MESSAGE = 'Your SmartThings session expired after a p
 const DEMO_DEVICES: DeviceEntry[] = [
   { deviceId: 'demo-switch', deviceName: 'Demo: Switch', deviceType: 'Switch', deviceProtocol: 'Demo', supportsSwitch: true },
   { deviceId: 'demo-dimmer', deviceName: 'Demo: Dimmer', deviceType: 'Dimmer Switch', deviceProtocol: 'Demo', supportsSwitch: true, supportsDimmer: true },
-  { deviceId: 'demo-color-bulb', deviceName: 'Demo: Color Bulb', deviceType: 'Color Bulb', deviceProtocol: 'Demo', supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true },
+  { deviceId: 'demo-color-bulb', deviceName: 'Demo: Color Temp Bulb', deviceType: 'Color Bulb', deviceProtocol: 'Demo', supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true },
+  { deviceId: 'demo-color-rgb', deviceName: 'Demo: RGB Bulb', deviceType: 'Color Bulb', deviceProtocol: 'Demo', supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true, supportsColorControl: true },
   { deviceId: 'demo-garage', deviceName: 'Demo: Garage Door', deviceType: 'Garage Door', deviceProtocol: 'Demo', supportsGarageDoor: true },
   { deviceId: 'demo-lock', deviceName: 'Demo: Lock', deviceType: 'Lock', deviceProtocol: 'Demo', supportsLock: true },
   { deviceId: 'demo-sonos', deviceName: 'Demo: Sonos Speaker', deviceType: 'Speaker', deviceProtocol: 'Demo', supportsMediaPlayback: true, supportsAudioVolume: true, supportsAudioMute: true, supportsMediaTrackControl: true },
@@ -2009,6 +2010,17 @@ export async function initApp(): Promise<void> {
     }
   }
 
+  async function runColorControl(deviceId: string, hue: number): Promise<void> {
+    try {
+      const response = await executeDeviceCommandViaServer(deviceId, 'colorControl', 'setColor', [{ hue, saturation: 100 }]);
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
   async function runMomentary(deviceId: string): Promise<void> {
     try {
       const response = await executeDeviceCommandViaServer(deviceId, 'momentary', 'push');
@@ -2589,6 +2601,17 @@ export async function initApp(): Promise<void> {
             if (listIndex === idx) { void runColorTemperature(deviceId, 'cooler'); }  // Cooler
             else if (listIndex === idx + 1) { void runColorTemperature(deviceId, 'warmer'); } // Warmer
             idx += 2;
+          }
+          if (device.supportsColorControl) {
+            if (listIndex === idx)     { void runColorControl(deviceId, 0); }   // Red
+            else if (listIndex === idx + 1) { void runColorControl(deviceId, 10); }  // Orange
+            else if (listIndex === idx + 2) { void runColorControl(deviceId, 17); }  // Yellow
+            else if (listIndex === idx + 3) { void runColorControl(deviceId, 33); }  // Green
+            else if (listIndex === idx + 4) { void runColorControl(deviceId, 50); }  // Cyan
+            else if (listIndex === idx + 5) { void runColorControl(deviceId, 66); }  // Blue
+            else if (listIndex === idx + 6) { void runColorControl(deviceId, 75); }  // Purple
+            else if (listIndex === idx + 7) { void runColorControl(deviceId, 90); }  // Pink
+            idx += 8;
           }
           if (device.supportsMomentary) {
             if (listIndex === idx) { void runMomentary(deviceId); }                   // Push

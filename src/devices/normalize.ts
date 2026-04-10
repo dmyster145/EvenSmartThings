@@ -35,6 +35,7 @@ export function deviceSupportsThermostatHeatingSetpoint(d: Device): boolean { re
 export function deviceSupportsThermostatCoolingSetpoint(d: Device): boolean { return hasCapability(d, 'thermostatCoolingSetpoint', 'thermostat'); }
 export function deviceSupportsFanSpeed(d: Device): boolean { return hasCapability(d, 'fanSpeed'); }
 export function deviceSupportsColorTemperature(d: Device): boolean { return hasCapability(d, 'colorTemperature'); }
+export function deviceSupportsColorControl(d: Device): boolean { return hasCapability(d, 'colorControl'); }
 export function deviceSupportsMomentary(d: Device): boolean { return hasCapability(d, 'momentary'); }
 
 /**
@@ -95,6 +96,7 @@ export function normalizeDevices(devices: Device[]): DeviceEntry[] {
     supportsThermostatCoolingSetpoint: deviceSupportsThermostatCoolingSetpoint(d),
     supportsFanSpeed: deviceSupportsFanSpeed(d),
     supportsColorTemperature: deviceSupportsColorTemperature(d),
+    supportsColorControl: deviceSupportsColorControl(d),
     supportsMomentary: deviceSupportsMomentary(d),
   }));
 }
