@@ -702,6 +702,30 @@ function deviceSupportsDimmer(d: Device): boolean {
   );
 }
 
+function deviceSupportsGarageDoor(d: Device): boolean {
+  return (d.components ?? []).some((c) =>
+    (c.capabilities ?? []).some((cap) => cap.id === 'garageDoorControl' || cap.id === 'doorControl')
+  );
+}
+
+function deviceSupportsLock(d: Device): boolean {
+  return (d.components ?? []).some((c) =>
+    (c.capabilities ?? []).some((cap) => cap.id === 'lock')
+  );
+}
+
+function deviceSupportsMediaPlayback(d: Device): boolean {
+  return (d.components ?? []).some((c) =>
+    (c.capabilities ?? []).some((cap) => cap.id === 'mediaPlayback')
+  );
+}
+
+function deviceSupportsAudioVolume(d: Device): boolean {
+  return (d.components ?? []).some((c) =>
+    (c.capabilities ?? []).some((cap) => cap.id === 'audioVolume')
+  );
+}
+
 /**
  * Human-readable device type: prefer component category (e.g. Light, Outlet) over protocol (Zigbee, Z-Wave).
  * Uses: main component's manufacturer category → first category → DTH deviceTypeName → integration type.
@@ -744,6 +768,10 @@ function normalizeDevices(devices: Device[]): DeviceEntry[] {
     deviceProtocol: deviceProtocolDisplayName(d),
     supportsSwitch: deviceSupportsSwitch(d),
     supportsDimmer: deviceSupportsDimmer(d),
+    supportsGarageDoor: deviceSupportsGarageDoor(d),
+    supportsLock: deviceSupportsLock(d),
+    supportsMediaPlayback: deviceSupportsMediaPlayback(d),
+    supportsAudioVolume: deviceSupportsAudioVolume(d),
   }));
 }
 
@@ -1832,6 +1860,68 @@ export async function initApp(): Promise<void> {
     }
   }
 
+  async function runGarageDoor(deviceId: string, open: boolean): Promise<void> {
+    try {
+      appendDebugLog(`Garage door requested. deviceId=${deviceId} command=${open ? 'open' : 'close'}`);
+      const response = await executeDeviceCommandViaServer(deviceId, 'garageDoorControl', open ? 'open' : 'close');
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      appendDebugLog(`Garage door result. deviceId=${deviceId} success=${success}`);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      appendDebugLog(`Garage door failed. deviceId=${deviceId} error=${getErrorMessage(err)}`, true);
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runLock(deviceId: string, lock: boolean): Promise<void> {
+    try {
+      appendDebugLog(`Lock requested. deviceId=${deviceId} command=${lock ? 'lock' : 'unlock'}`);
+      const response = await executeDeviceCommandViaServer(deviceId, 'lock', lock ? 'lock' : 'unlock');
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      appendDebugLog(`Lock result. deviceId=${deviceId} success=${success}`);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      appendDebugLog(`Lock failed. deviceId=${deviceId} error=${getErrorMessage(err)}`, true);
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runMediaPlayback(deviceId: string, command: 'play' | 'pause'): Promise<void> {
+    try {
+      appendDebugLog(`Media playback requested. deviceId=${deviceId} command=${command}`);
+      const response = await executeDeviceCommandViaServer(deviceId, 'mediaPlayback', command);
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      appendDebugLog(`Media playback result. deviceId=${deviceId} success=${success}`);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      appendDebugLog(`Media playback failed. deviceId=${deviceId} error=${getErrorMessage(err)}`, true);
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runAudioVolume(deviceId: string, direction: 'up' | 'down'): Promise<void> {
+    try {
+      appendDebugLog(`Audio volume requested. deviceId=${deviceId} command=volume${direction === 'up' ? 'Up' : 'Down'}`);
+      const response = await executeDeviceCommandViaServer(
+        deviceId, 'audioVolume', direction === 'up' ? 'volumeUp' : 'volumeDown'
+      );
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      appendDebugLog(`Audio volume result. deviceId=${deviceId} success=${success}`);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      appendDebugLog(`Audio volume failed. deviceId=${deviceId} error=${getErrorMessage(err)}`, true);
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
   async function runAllDevicesInRoomSwitch(on: boolean): Promise<void> {
     const devices = store.getState().devices.filter((d) => d.supportsSwitch);
     if (devices.length === 0) {
@@ -2305,22 +2395,45 @@ export async function initApp(): Promise<void> {
       } else if (tapCount === 1) {
         const deviceId = state.selectedDeviceId;
         const device = getSelectedDevice(state);
-        const hasSwitch = device?.supportsSwitch ?? false;
-        const hasDim = device?.supportsDimmer ?? false;
         if (listIndex === 0) {
           store.dispatch({
             type: 'NAV_VIEW',
             view: state.selectedRoomId == null ? 'favorites' : 'devices',
           });
           refreshPage();
-        } else if (deviceId && hasSwitch && listIndex === 1) {
-          void runDeviceSwitch(deviceId, true);
-        } else if (deviceId && hasSwitch && listIndex === 2) {
-          void runDeviceSwitch(deviceId, false);
-        } else if (deviceId && hasDim && (hasSwitch ? listIndex === 3 : listIndex === 1)) {
-          store.dispatch({ type: 'NAV_VIEW', view: 'device-dim' });
-          refreshPage();
-          if (state.selectedDeviceId) void loadDeviceStats(state.selectedDeviceId);
+        } else if (deviceId && device) {
+          // Walk through actions in the same order as deviceDetailItemNames() in composer.ts.
+          let idx = 1;
+          if (device.supportsSwitch) {
+            if (listIndex === idx) { void runDeviceSwitch(deviceId, true); }          // On
+            else if (listIndex === idx + 1) { void runDeviceSwitch(deviceId, false); } // Off
+            idx += 2;
+          }
+          if (device.supportsGarageDoor) {
+            if (listIndex === idx) { void runGarageDoor(deviceId, true); }            // Open
+            else if (listIndex === idx + 1) { void runGarageDoor(deviceId, false); }  // Close
+            idx += 2;
+          }
+          if (device.supportsLock) {
+            if (listIndex === idx) { void runLock(deviceId, true); }                  // Lock
+            else if (listIndex === idx + 1) { void runLock(deviceId, false); }        // Unlock
+            idx += 2;
+          }
+          if (device.supportsMediaPlayback) {
+            if (listIndex === idx) { void runMediaPlayback(deviceId, 'play'); }       // Play
+            else if (listIndex === idx + 1) { void runMediaPlayback(deviceId, 'pause'); } // Pause
+            idx += 2;
+          }
+          if (device.supportsAudioVolume) {
+            if (listIndex === idx) { void runAudioVolume(deviceId, 'up'); }           // Vol +
+            else if (listIndex === idx + 1) { void runAudioVolume(deviceId, 'down'); } // Vol -
+            idx += 2;
+          }
+          if (device.supportsDimmer && listIndex === idx) {
+            store.dispatch({ type: 'NAV_VIEW', view: 'device-dim' });
+            refreshPage();
+            void loadDeviceStats(deviceId);
+          }
         }
       }
       lastTapIndex = -1;

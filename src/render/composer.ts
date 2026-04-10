@@ -341,11 +341,17 @@ function deviceNamesForListView(state: AppState): string[] {
   return [LABEL_PREVIOUS, ...devicePart, ...(isLast ? [] : [LABEL_NEXT])];
 }
 
-/** List item names for device-detail view (Back, then On/Off if switchable, then Dim if dimmable). */
+/** List item names for device-detail view. Order must match the TAP handler in app.ts. */
 function deviceDetailItemNames(state: AppState): string[] {
   const device = getSelectedDevice(state);
-  const base = device?.supportsSwitch ? [LABEL_BACK, 'On', 'Off'] : [LABEL_BACK];
-  return device?.supportsDimmer ? [...base, 'Dim'] : base;
+  const items: string[] = [LABEL_BACK];
+  if (device?.supportsSwitch) items.push('On', 'Off');
+  if (device?.supportsGarageDoor) items.push('Open', 'Close');
+  if (device?.supportsLock) items.push('Lock', 'Unlock');
+  if (device?.supportsMediaPlayback) items.push('Play', 'Pause');
+  if (device?.supportsAudioVolume) items.push('Vol +', 'Vol -');
+  if (device?.supportsDimmer) items.push('Dim');
+  return items;
 }
 
 /** List item names for room-all-detail view (Back, then On/Off if any switchable, then Dim if any dimmable). */

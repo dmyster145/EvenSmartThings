@@ -18,6 +18,14 @@ export interface DeviceEntry {
   supportsSwitch?: boolean;
   /** True if device has switchLevel capability (dimmable). */
   supportsDimmer?: boolean;
+  /** True if device has garageDoorControl or doorControl capability (open/close). */
+  supportsGarageDoor?: boolean;
+  /** True if device has lock capability (lock/unlock). */
+  supportsLock?: boolean;
+  /** True if device has mediaPlayback capability (play/pause). */
+  supportsMediaPlayback?: boolean;
+  /** True if device has audioVolume capability (volume up/down). */
+  supportsAudioVolume?: boolean;
 }
 
 export interface RoomEntry {
