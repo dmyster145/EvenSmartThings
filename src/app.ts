@@ -1829,7 +1829,7 @@ export async function initApp(): Promise<void> {
     }
   }
 
-  async function runMediaPlayback(deviceId: string, command: 'play' | 'pause'): Promise<void> {
+  async function runMediaPlayback(deviceId: string, command: 'play' | 'pause' | 'stop'): Promise<void> {
     try {
       appendDebugLog(`Media playback requested. deviceId=${deviceId} command=${command}`);
       const response = await executeDeviceCommandViaServer(deviceId, 'mediaPlayback', command);
@@ -1923,7 +1923,7 @@ export async function initApp(): Promise<void> {
     }
   }
 
-  async function runAlarm(deviceId: string, command: 'siren' | 'off'): Promise<void> {
+  async function runAlarm(deviceId: string, command: 'siren' | 'strobe' | 'both' | 'off'): Promise<void> {
     try {
       const response = await executeDeviceCommandViaServer(deviceId, 'alarm', command);
       const success = await isDeviceCommandSuccess(deviceId, response);
@@ -1935,7 +1935,7 @@ export async function initApp(): Promise<void> {
     }
   }
 
-  async function runThermostatMode(deviceId: string, mode: 'heat' | 'cool' | 'auto' | 'off'): Promise<void> {
+  async function runThermostatMode(deviceId: string, mode: 'heat' | 'cool' | 'auto' | 'off' | 'emergencyHeat'): Promise<void> {
     try {
       const response = await executeDeviceCommandViaServer(deviceId, 'thermostatMode', mode);
       const success = await isDeviceCommandSuccess(deviceId, response);
@@ -2535,9 +2535,10 @@ export async function initApp(): Promise<void> {
             idx += 2;
           }
           if (device.supportsMediaPlayback) {
-            if (listIndex === idx) { void runMediaPlayback(deviceId, 'play'); }       // Play
+            if (listIndex === idx) { void runMediaPlayback(deviceId, 'play'); }           // Play
             else if (listIndex === idx + 1) { void runMediaPlayback(deviceId, 'pause'); } // Pause
-            idx += 2;
+            else if (listIndex === idx + 2) { void runMediaPlayback(deviceId, 'stop'); }  // Stop
+            idx += 3;
           }
           if (device.supportsAudioVolume) {
             if (listIndex === idx) { void runAudioVolume(deviceId, 'up'); }           // Vol +
@@ -2572,15 +2573,18 @@ export async function initApp(): Promise<void> {
           }
           if (device.supportsAlarm) {
             if (listIndex === idx) { void runAlarm(deviceId, 'siren'); }              // Siren
-            else if (listIndex === idx + 1) { void runAlarm(deviceId, 'off'); }       // Off
-            idx += 2;
+            else if (listIndex === idx + 1) { void runAlarm(deviceId, 'strobe'); }    // Strobe
+            else if (listIndex === idx + 2) { void runAlarm(deviceId, 'both'); }      // Both
+            else if (listIndex === idx + 3) { void runAlarm(deviceId, 'off'); }       // Off
+            idx += 4;
           }
           if (device.supportsThermostatMode) {
             if (listIndex === idx) { void runThermostatMode(deviceId, 'heat'); }
             else if (listIndex === idx + 1) { void runThermostatMode(deviceId, 'cool'); }
             else if (listIndex === idx + 2) { void runThermostatMode(deviceId, 'auto'); }
             else if (listIndex === idx + 3) { void runThermostatMode(deviceId, 'off'); }
-            idx += 4;
+            else if (listIndex === idx + 4) { void runThermostatMode(deviceId, 'emergencyHeat'); }
+            idx += 5;
           }
           if (device.supportsThermostatHeatingSetpoint) {
             if (listIndex === idx) { void runThermostatSetpoint(deviceId, 'heating', 1); }   // Heat +

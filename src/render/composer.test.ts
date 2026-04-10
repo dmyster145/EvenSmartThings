@@ -58,7 +58,8 @@ function simulateTapActions(device: DeviceEntry): Array<{ index: number; action:
   if (device.supportsMediaPlayback) {
     actions.push({ index: idx, action: 'media_play' });
     actions.push({ index: idx + 1, action: 'media_pause' });
-    idx += 2;
+    actions.push({ index: idx + 2, action: 'media_stop' });
+    idx += 3;
   }
   if (device.supportsAudioVolume) {
     actions.push({ index: idx, action: 'vol_up' });
@@ -93,15 +94,18 @@ function simulateTapActions(device: DeviceEntry): Array<{ index: number; action:
   }
   if (device.supportsAlarm) {
     actions.push({ index: idx, action: 'alarm_siren' });
-    actions.push({ index: idx + 1, action: 'alarm_off' });
-    idx += 2;
+    actions.push({ index: idx + 1, action: 'alarm_strobe' });
+    actions.push({ index: idx + 2, action: 'alarm_both' });
+    actions.push({ index: idx + 3, action: 'alarm_off' });
+    idx += 4;
   }
   if (device.supportsThermostatMode) {
     actions.push({ index: idx, action: 'therm_heat' });
     actions.push({ index: idx + 1, action: 'therm_cool' });
     actions.push({ index: idx + 2, action: 'therm_auto' });
     actions.push({ index: idx + 3, action: 'therm_off' });
-    idx += 4;
+    actions.push({ index: idx + 4, action: 'therm_emergency_heat' });
+    idx += 5;
   }
   if (device.supportsThermostatHeatingSetpoint) {
     actions.push({ index: idx, action: 'heat_plus' });
@@ -187,8 +191,8 @@ describe('deviceDetailItemNames — individual capabilities', () => {
     expect(deviceDetailItemNames(makeState({ supportsLock: true }))).toEqual([BACK, 'Lock', 'Unlock']);
   });
 
-  it('mediaPlayback: Play / Pause', () => {
-    expect(deviceDetailItemNames(makeState({ supportsMediaPlayback: true }))).toEqual([BACK, 'Play', 'Pause']);
+  it('mediaPlayback: Play / Pause / Stop', () => {
+    expect(deviceDetailItemNames(makeState({ supportsMediaPlayback: true }))).toEqual([BACK, 'Play', 'Pause', 'Stop']);
   });
 
   it('audioVolume: Vol + / Vol -', () => {
@@ -215,12 +219,12 @@ describe('deviceDetailItemNames — individual capabilities', () => {
     expect(deviceDetailItemNames(makeState({ supportsValve: true }))).toEqual([BACK, 'Open', 'Close']);
   });
 
-  it('alarm: Siren / Off', () => {
-    expect(deviceDetailItemNames(makeState({ supportsAlarm: true }))).toEqual([BACK, 'Siren', 'Off']);
+  it('alarm: Siren / Strobe / Both / Off', () => {
+    expect(deviceDetailItemNames(makeState({ supportsAlarm: true }))).toEqual([BACK, 'Siren', 'Strobe', 'Both', 'Off']);
   });
 
-  it('thermostatMode: Heat / Cool / Auto / Off (4 actions)', () => {
-    expect(deviceDetailItemNames(makeState({ supportsThermostatMode: true }))).toEqual([BACK, 'Heat', 'Cool', 'Auto', 'Off']);
+  it('thermostatMode: Heat / Cool / Auto / Off / Emrg Heat (5 actions)', () => {
+    expect(deviceDetailItemNames(makeState({ supportsThermostatMode: true }))).toEqual([BACK, 'Heat', 'Cool', 'Auto', 'Off', 'Emrg Heat']);
   });
 
   it('thermostatHeatingSetpoint: Heat + / Heat -', () => {
@@ -290,7 +294,7 @@ describe('deviceDetailItemNames — realistic devices', () => {
       supportsAudioMute: true,
       supportsMediaTrackControl: true,
     }));
-    expect(items).toEqual([BACK, 'On', 'Off', 'Play', 'Pause', 'Vol +', 'Vol -', 'Mute', 'Unmute', 'Prev', 'Next']);
+    expect(items).toEqual([BACK, 'On', 'Off', 'Play', 'Pause', 'Stop', 'Vol +', 'Vol -', 'Mute', 'Unmute', 'Prev', 'Next']);
   });
 
   it('full thermostat (mode + heating + cooling setpoints)', () => {
@@ -299,7 +303,7 @@ describe('deviceDetailItemNames — realistic devices', () => {
       supportsThermostatHeatingSetpoint: true,
       supportsThermostatCoolingSetpoint: true,
     }));
-    expect(items).toEqual([BACK, 'Heat', 'Cool', 'Auto', 'Off', 'Heat +', 'Heat -', 'Cool +', 'Cool -']);
+    expect(items).toEqual([BACK, 'Heat', 'Cool', 'Auto', 'Off', 'Emrg Heat', 'Heat +', 'Heat -', 'Cool +', 'Cool -']);
   });
 
   it('Samsung TV (switch + tvChannel + audioVolume + audioMute)', () => {
@@ -329,7 +333,7 @@ describe('deviceDetailItemNames — realistic devices', () => {
 
   it('siren alarm (switch + alarm)', () => {
     const items = deviceDetailItemNames(makeState({ supportsSwitch: true, supportsAlarm: true }));
-    expect(items).toEqual([BACK, 'On', 'Off', 'Siren', 'Off']);
+    expect(items).toEqual([BACK, 'On', 'Off', 'Siren', 'Strobe', 'Both', 'Off']);
   });
 
   it('ceiling fan (switch + fanSpeed)', () => {
