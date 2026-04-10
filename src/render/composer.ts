@@ -350,6 +350,18 @@ function deviceDetailItemNames(state: AppState): string[] {
   if (device?.supportsLock) items.push('Lock', 'Unlock');
   if (device?.supportsMediaPlayback) items.push('Play', 'Pause');
   if (device?.supportsAudioVolume) items.push('Vol +', 'Vol -');
+  if (device?.supportsAudioMute) items.push('Mute', 'Unmute');
+  if (device?.supportsMediaTrackControl) items.push('Prev', 'Next');
+  if (device?.supportsTvChannel) items.push('Ch+', 'Ch-');
+  if (device?.supportsWindowShade) items.push('Open', 'Close', 'Pause');
+  if (device?.supportsValve) items.push('Open', 'Close');
+  if (device?.supportsAlarm) items.push('Siren', 'Off');
+  if (device?.supportsThermostatMode) items.push('Heat', 'Cool', 'Auto', 'Off');
+  if (device?.supportsThermostatHeatingSetpoint) items.push('Heat +', 'Heat -');
+  if (device?.supportsThermostatCoolingSetpoint) items.push('Cool +', 'Cool -');
+  if (device?.supportsFanSpeed) items.push('Speed +', 'Speed -');
+  if (device?.supportsColorTemperature) items.push('Cooler', 'Warmer');
+  if (device?.supportsMomentary) items.push('Push');
   if (device?.supportsDimmer) items.push('Dim');
   return items;
 }

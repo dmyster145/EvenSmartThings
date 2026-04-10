@@ -726,6 +726,25 @@ function deviceSupportsAudioVolume(d: Device): boolean {
   );
 }
 
+function hasCapability(d: Device, ...ids: string[]): boolean {
+  return (d.components ?? []).some((c) =>
+    (c.capabilities ?? []).some((cap) => ids.includes(cap.id))
+  );
+}
+
+function deviceSupportsAudioMute(d: Device): boolean { return hasCapability(d, 'audioMute'); }
+function deviceSupportsMediaTrackControl(d: Device): boolean { return hasCapability(d, 'mediaTrackControl'); }
+function deviceSupportsTvChannel(d: Device): boolean { return hasCapability(d, 'tvChannel'); }
+function deviceSupportsWindowShade(d: Device): boolean { return hasCapability(d, 'windowShade'); }
+function deviceSupportsValve(d: Device): boolean { return hasCapability(d, 'valve'); }
+function deviceSupportsAlarm(d: Device): boolean { return hasCapability(d, 'alarm'); }
+function deviceSupportsThermostatMode(d: Device): boolean { return hasCapability(d, 'thermostatMode', 'thermostat'); }
+function deviceSupportsThermostatHeatingSetpoint(d: Device): boolean { return hasCapability(d, 'thermostatHeatingSetpoint', 'thermostat'); }
+function deviceSupportsThermostatCoolingSetpoint(d: Device): boolean { return hasCapability(d, 'thermostatCoolingSetpoint', 'thermostat'); }
+function deviceSupportsFanSpeed(d: Device): boolean { return hasCapability(d, 'fanSpeed'); }
+function deviceSupportsColorTemperature(d: Device): boolean { return hasCapability(d, 'colorTemperature'); }
+function deviceSupportsMomentary(d: Device): boolean { return hasCapability(d, 'momentary'); }
+
 /**
  * Human-readable device type: prefer component category (e.g. Light, Outlet) over protocol (Zigbee, Z-Wave).
  * Uses: main component's manufacturer category → first category → DTH deviceTypeName → integration type.
@@ -772,6 +791,18 @@ function normalizeDevices(devices: Device[]): DeviceEntry[] {
     supportsLock: deviceSupportsLock(d),
     supportsMediaPlayback: deviceSupportsMediaPlayback(d),
     supportsAudioVolume: deviceSupportsAudioVolume(d),
+    supportsAudioMute: deviceSupportsAudioMute(d),
+    supportsMediaTrackControl: deviceSupportsMediaTrackControl(d),
+    supportsTvChannel: deviceSupportsTvChannel(d),
+    supportsWindowShade: deviceSupportsWindowShade(d),
+    supportsValve: deviceSupportsValve(d),
+    supportsAlarm: deviceSupportsAlarm(d),
+    supportsThermostatMode: deviceSupportsThermostatMode(d),
+    supportsThermostatHeatingSetpoint: deviceSupportsThermostatHeatingSetpoint(d),
+    supportsThermostatCoolingSetpoint: deviceSupportsThermostatCoolingSetpoint(d),
+    supportsFanSpeed: deviceSupportsFanSpeed(d),
+    supportsColorTemperature: deviceSupportsColorTemperature(d),
+    supportsMomentary: deviceSupportsMomentary(d),
   }));
 }
 
@@ -1922,6 +1953,166 @@ export async function initApp(): Promise<void> {
     }
   }
 
+  async function runAudioMute(deviceId: string, mute: boolean): Promise<void> {
+    try {
+      const response = await executeDeviceCommandViaServer(deviceId, 'audioMute', mute ? 'mute' : 'unmute');
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runMediaTrackControl(deviceId: string, direction: 'next' | 'prev'): Promise<void> {
+    try {
+      const response = await executeDeviceCommandViaServer(
+        deviceId, 'mediaTrackControl', direction === 'next' ? 'nextTrack' : 'previousTrack'
+      );
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runTvChannel(deviceId: string, direction: 'up' | 'down'): Promise<void> {
+    try {
+      const response = await executeDeviceCommandViaServer(
+        deviceId, 'tvChannel', direction === 'up' ? 'channelUp' : 'channelDown'
+      );
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runWindowShade(deviceId: string, command: 'open' | 'close' | 'pause'): Promise<void> {
+    try {
+      const response = await executeDeviceCommandViaServer(deviceId, 'windowShade', command);
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runValve(deviceId: string, open: boolean): Promise<void> {
+    try {
+      const response = await executeDeviceCommandViaServer(deviceId, 'valve', open ? 'open' : 'close');
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runAlarm(deviceId: string, command: 'siren' | 'off'): Promise<void> {
+    try {
+      const response = await executeDeviceCommandViaServer(deviceId, 'alarm', command);
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runThermostatMode(deviceId: string, mode: 'heat' | 'cool' | 'auto' | 'off'): Promise<void> {
+    try {
+      const response = await executeDeviceCommandViaServer(deviceId, 'thermostatMode', mode);
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runThermostatSetpoint(
+    deviceId: string,
+    which: 'heating' | 'cooling',
+    delta: 1 | -1
+  ): Promise<void> {
+    try {
+      const status = await withSmartThingsClient((client) =>
+        client.devices.getStatus(deviceId)
+      ) as DeviceStatusShape;
+      const main = status?.components?.main;
+      const capId = which === 'heating' ? 'thermostatHeatingSetpoint' : 'thermostatCoolingSetpoint';
+      const attrId = which === 'heating' ? 'heatingSetpoint' : 'coolingSetpoint';
+      const command = which === 'heating' ? 'setHeatingSetpoint' : 'setCoolingSetpoint';
+      const current = main?.[capId]?.[attrId]?.value;
+      if (typeof current !== 'number') { await showConfirmation('failure'); return; }
+      const next = Math.round(current + delta);
+      const response = await executeDeviceCommandViaServer(deviceId, capId, command, [next]);
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runFanSpeed(deviceId: string, delta: 1 | -1): Promise<void> {
+    try {
+      const status = await withSmartThingsClient((client) =>
+        client.devices.getStatus(deviceId)
+      ) as DeviceStatusShape;
+      const current = status?.components?.main?.fanSpeed?.fanSpeed?.value;
+      if (typeof current !== 'number') { await showConfirmation('failure'); return; }
+      const next = Math.max(0, Math.round(current + delta));
+      const response = await executeDeviceCommandViaServer(deviceId, 'fanSpeed', 'setFanSpeed', [next]);
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runColorTemperature(deviceId: string, direction: 'warmer' | 'cooler'): Promise<void> {
+    try {
+      const status = await withSmartThingsClient((client) =>
+        client.devices.getStatus(deviceId)
+      ) as DeviceStatusShape;
+      const current = status?.components?.main?.colorTemperature?.colorTemperature?.value;
+      if (typeof current !== 'number') { await showConfirmation('failure'); return; }
+      const step = 200;
+      const next = Math.max(1000, Math.min(30000, Math.round(current + (direction === 'warmer' ? -step : step))));
+      const response = await executeDeviceCommandViaServer(deviceId, 'colorTemperature', 'setColorTemperature', [next]);
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
+  async function runMomentary(deviceId: string): Promise<void> {
+    try {
+      const response = await executeDeviceCommandViaServer(deviceId, 'momentary', 'push');
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      await showConfirmation(success ? 'success' : 'failure');
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
   async function runAllDevicesInRoomSwitch(on: boolean): Promise<void> {
     const devices = store.getState().devices.filter((d) => d.supportsSwitch);
     if (devices.length === 0) {
@@ -2428,6 +2619,68 @@ export async function initApp(): Promise<void> {
             if (listIndex === idx) { void runAudioVolume(deviceId, 'up'); }           // Vol +
             else if (listIndex === idx + 1) { void runAudioVolume(deviceId, 'down'); } // Vol -
             idx += 2;
+          }
+          if (device.supportsAudioMute) {
+            if (listIndex === idx) { void runAudioMute(deviceId, true); }             // Mute
+            else if (listIndex === idx + 1) { void runAudioMute(deviceId, false); }   // Unmute
+            idx += 2;
+          }
+          if (device.supportsMediaTrackControl) {
+            if (listIndex === idx) { void runMediaTrackControl(deviceId, 'prev'); }   // Prev
+            else if (listIndex === idx + 1) { void runMediaTrackControl(deviceId, 'next'); } // Next
+            idx += 2;
+          }
+          if (device.supportsTvChannel) {
+            if (listIndex === idx) { void runTvChannel(deviceId, 'up'); }             // Ch+
+            else if (listIndex === idx + 1) { void runTvChannel(deviceId, 'down'); }  // Ch-
+            idx += 2;
+          }
+          if (device.supportsWindowShade) {
+            if (listIndex === idx) { void runWindowShade(deviceId, 'open'); }         // Open
+            else if (listIndex === idx + 1) { void runWindowShade(deviceId, 'close'); } // Close
+            else if (listIndex === idx + 2) { void runWindowShade(deviceId, 'pause'); } // Pause
+            idx += 3;
+          }
+          if (device.supportsValve) {
+            if (listIndex === idx) { void runValve(deviceId, true); }                 // Open
+            else if (listIndex === idx + 1) { void runValve(deviceId, false); }       // Close
+            idx += 2;
+          }
+          if (device.supportsAlarm) {
+            if (listIndex === idx) { void runAlarm(deviceId, 'siren'); }              // Siren
+            else if (listIndex === idx + 1) { void runAlarm(deviceId, 'off'); }       // Off
+            idx += 2;
+          }
+          if (device.supportsThermostatMode) {
+            if (listIndex === idx) { void runThermostatMode(deviceId, 'heat'); }
+            else if (listIndex === idx + 1) { void runThermostatMode(deviceId, 'cool'); }
+            else if (listIndex === idx + 2) { void runThermostatMode(deviceId, 'auto'); }
+            else if (listIndex === idx + 3) { void runThermostatMode(deviceId, 'off'); }
+            idx += 4;
+          }
+          if (device.supportsThermostatHeatingSetpoint) {
+            if (listIndex === idx) { void runThermostatSetpoint(deviceId, 'heating', 1); }   // Heat +
+            else if (listIndex === idx + 1) { void runThermostatSetpoint(deviceId, 'heating', -1); } // Heat -
+            idx += 2;
+          }
+          if (device.supportsThermostatCoolingSetpoint) {
+            if (listIndex === idx) { void runThermostatSetpoint(deviceId, 'cooling', 1); }   // Cool +
+            else if (listIndex === idx + 1) { void runThermostatSetpoint(deviceId, 'cooling', -1); } // Cool -
+            idx += 2;
+          }
+          if (device.supportsFanSpeed) {
+            if (listIndex === idx) { void runFanSpeed(deviceId, 1); }                 // Speed +
+            else if (listIndex === idx + 1) { void runFanSpeed(deviceId, -1); }       // Speed -
+            idx += 2;
+          }
+          if (device.supportsColorTemperature) {
+            if (listIndex === idx) { void runColorTemperature(deviceId, 'cooler'); }  // Cooler
+            else if (listIndex === idx + 1) { void runColorTemperature(deviceId, 'warmer'); } // Warmer
+            idx += 2;
+          }
+          if (device.supportsMomentary) {
+            if (listIndex === idx) { void runMomentary(deviceId); }                   // Push
+            idx += 1;
           }
           if (device.supportsDimmer && listIndex === idx) {
             store.dispatch({ type: 'NAV_VIEW', view: 'device-dim' });

@@ -26,6 +26,30 @@ export interface DeviceEntry {
   supportsMediaPlayback?: boolean;
   /** True if device has audioVolume capability (volume up/down). */
   supportsAudioVolume?: boolean;
+  /** True if device has audioMute capability (mute/unmute). */
+  supportsAudioMute?: boolean;
+  /** True if device has mediaTrackControl capability (next/previous track). */
+  supportsMediaTrackControl?: boolean;
+  /** True if device has tvChannel capability (channel up/down). */
+  supportsTvChannel?: boolean;
+  /** True if device has windowShade capability (open/close/pause). */
+  supportsWindowShade?: boolean;
+  /** True if device has valve capability (open/close). */
+  supportsValve?: boolean;
+  /** True if device has alarm capability (siren/off). */
+  supportsAlarm?: boolean;
+  /** True if device has thermostatMode capability (heat/cool/auto/off). */
+  supportsThermostatMode?: boolean;
+  /** True if device has thermostatHeatingSetpoint capability (heat +/-). */
+  supportsThermostatHeatingSetpoint?: boolean;
+  /** True if device has thermostatCoolingSetpoint capability (cool +/-). */
+  supportsThermostatCoolingSetpoint?: boolean;
+  /** True if device has fanSpeed capability (speed +/-). */
+  supportsFanSpeed?: boolean;
+  /** True if device has colorTemperature capability (warmer/cooler). */
+  supportsColorTemperature?: boolean;
+  /** True if device has momentary capability (push). */
+  supportsMomentary?: boolean;
 }
 
 export interface RoomEntry {
