@@ -54,8 +54,6 @@ export interface DeviceEntry {
   supportsThermostatFanMode?: boolean;
   /** True if device has colorTemperature capability (warmer/cooler). */
   supportsColorTemperature?: boolean;
-  /** True if device has colorMode capability (CT vs COLOR mode switch). */
-  supportsColorMode?: boolean;
   /** True if device has colorControl capability (hue/saturation presets). */
   supportsColorControl?: boolean;
   /** True if device has momentary capability (push). */

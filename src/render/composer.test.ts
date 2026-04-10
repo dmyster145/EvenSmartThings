@@ -82,13 +82,18 @@ function simulateTapActions(device: DeviceEntry): Array<{ index: number; action:
     idx += 2;
   }
   if (device.supportsMediaInputSource) {
-    actions.push({ index: idx,     action: 'input_hdmi1' });
-    actions.push({ index: idx + 1, action: 'input_hdmi2' });
-    actions.push({ index: idx + 2, action: 'input_hdmi3' });
-    actions.push({ index: idx + 3, action: 'input_tv' });
-    actions.push({ index: idx + 4, action: 'input_optical' });
-    actions.push({ index: idx + 5, action: 'input_bt' });
-    idx += 6;
+    actions.push({ index: idx,      action: 'input_hdmi1' });
+    actions.push({ index: idx + 1,  action: 'input_hdmi2' });
+    actions.push({ index: idx + 2,  action: 'input_hdmi3' });
+    actions.push({ index: idx + 3,  action: 'input_hdmi4' });
+    actions.push({ index: idx + 4,  action: 'input_hdmi5' });
+    actions.push({ index: idx + 5,  action: 'input_hdmi6' });
+    actions.push({ index: idx + 6,  action: 'input_tv' });
+    actions.push({ index: idx + 7,  action: 'input_optical' });
+    actions.push({ index: idx + 8,  action: 'input_bt' });
+    actions.push({ index: idx + 9,  action: 'input_aux' });
+    actions.push({ index: idx + 10, action: 'input_usb' });
+    idx += 11;
   }
   if (device.supportsWindowShade) {
     actions.push({ index: idx, action: 'shade_open' });
@@ -147,11 +152,6 @@ function simulateTapActions(device: DeviceEntry): Array<{ index: number; action:
   if (device.supportsColorTemperature) {
     actions.push({ index: idx, action: 'cooler' });
     actions.push({ index: idx + 1, action: 'warmer' });
-    idx += 2;
-  }
-  if (device.supportsColorMode) {
-    actions.push({ index: idx, action: 'color_mode_ct' });
-    actions.push({ index: idx + 1, action: 'color_mode_color' });
     idx += 2;
   }
   if (device.supportsColorControl) {
@@ -238,9 +238,9 @@ describe('deviceDetailItemNames — individual capabilities', () => {
     expect(deviceDetailItemNames(makeState({ supportsTvChannel: true }))).toEqual([BACK, 'Ch+', 'Ch-']);
   });
 
-  it('mediaInputSource: 6 named inputs', () => {
+  it('mediaInputSource: 11 named inputs', () => {
     expect(deviceDetailItemNames(makeState({ supportsMediaInputSource: true }))).toEqual([
-      BACK, 'HDMI 1', 'HDMI 2', 'HDMI 3', 'TV', 'Optical', 'BT',
+      BACK, 'HDMI 1', 'HDMI 2', 'HDMI 3', 'HDMI 4', 'HDMI 5', 'HDMI 6', 'TV', 'Optical', 'BT', 'Aux', 'USB',
     ]);
   });
 
@@ -284,10 +284,6 @@ describe('deviceDetailItemNames — individual capabilities', () => {
     expect(deviceDetailItemNames(makeState({ supportsColorTemperature: true }))).toEqual([BACK, 'Cooler', 'Warmer']);
   });
 
-  it('colorMode: CT Mode / Color Mode', () => {
-    expect(deviceDetailItemNames(makeState({ supportsColorMode: true }))).toEqual([BACK, 'CT Mode', 'Color Mode']);
-  });
-
   it('colorControl: 8 named color presets', () => {
     expect(deviceDetailItemNames(makeState({ supportsColorControl: true }))).toEqual([
       BACK, 'Red', 'Orange', 'Yellow', 'Green', 'Cyan', 'Blue', 'Purple', 'Pink',
@@ -317,16 +313,15 @@ describe('deviceDetailItemNames — realistic devices', () => {
     expect(items).toEqual([BACK, 'On', 'Off', 'Cooler', 'Warmer', 'Dim']);
   });
 
-  it('RGB color bulb (switch + dimmer + colorTemperature + colorMode + colorControl)', () => {
+  it('RGB color bulb (switch + dimmer + colorTemperature + colorControl)', () => {
     const items = deviceDetailItemNames(makeState({
       supportsSwitch: true,
       supportsDimmer: true,
       supportsColorTemperature: true,
-      supportsColorMode: true,
       supportsColorControl: true,
     }));
     expect(items).toEqual([
-      BACK, 'On', 'Off', 'Cooler', 'Warmer', 'CT Mode', 'Color Mode',
+      BACK, 'On', 'Off', 'Cooler', 'Warmer',
       'Red', 'Orange', 'Yellow', 'Green', 'Cyan', 'Blue', 'Purple', 'Pink',
       'Dim',
     ]);
@@ -340,7 +335,7 @@ describe('deviceDetailItemNames — realistic devices', () => {
       supportsAudioVolume: true,
       supportsAudioMute: true,
     }));
-    expect(items).toEqual([BACK, 'On', 'Off', 'Vol +', 'Vol -', 'Mute', 'Unmute', 'Ch+', 'Ch-', 'HDMI 1', 'HDMI 2', 'HDMI 3', 'TV', 'Optical', 'BT']);
+    expect(items).toEqual([BACK, 'On', 'Off', 'Vol +', 'Vol -', 'Mute', 'Unmute', 'Ch+', 'Ch-', 'HDMI 1', 'HDMI 2', 'HDMI 3', 'HDMI 4', 'HDMI 5', 'HDMI 6', 'TV', 'Optical', 'BT', 'Aux', 'USB']);
   });
 
   it('smart blind (windowShade + windowShadeLevel)', () => {
@@ -475,9 +470,8 @@ describe('TAP index consistency', () => {
   checkConsistency({ supportsThermostatMode: true, supportsThermostatHeatingSetpoint: true, supportsThermostatCoolingSetpoint: true, supportsThermostatFanMode: true }, 'thermostat-with-fan');
   checkConsistency({ supportsFanSpeed: true }, 'fanSpeed');
   checkConsistency({ supportsColorTemperature: true }, 'colorTemperature');
-  checkConsistency({ supportsColorMode: true }, 'colorMode');
   checkConsistency({ supportsColorControl: true }, 'colorControl');
-  checkConsistency({ supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true, supportsColorMode: true, supportsColorControl: true }, 'rgb-bulb');
+  checkConsistency({ supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true, supportsColorControl: true }, 'rgb-bulb');
   checkConsistency({ supportsMomentary: true }, 'momentary');
 
   // Multi-capability consistency
@@ -526,7 +520,7 @@ describe('deviceDetailItemNames — edge cases', () => {
       supportsValve: true, supportsAlarm: true,
       supportsThermostatMode: true, supportsThermostatHeatingSetpoint: true,
       supportsThermostatCoolingSetpoint: true, supportsThermostatFanMode: true, supportsFanSpeed: true,
-      supportsColorTemperature: true, supportsColorMode: true, supportsColorControl: true, supportsMomentary: true,
+      supportsColorTemperature: true, supportsColorControl: true, supportsMomentary: true,
     };
     const device: DeviceEntry = { deviceId: 'd1', deviceName: 'All', ...allFlags };
     const actions = simulateTapActions(device);
@@ -544,7 +538,7 @@ describe('deviceDetailItemNames — edge cases', () => {
       supportsValve: true, supportsAlarm: true,
       supportsThermostatMode: true, supportsThermostatHeatingSetpoint: true,
       supportsThermostatCoolingSetpoint: true, supportsThermostatFanMode: true, supportsFanSpeed: true,
-      supportsColorTemperature: true, supportsColorMode: true, supportsColorControl: true, supportsMomentary: true,
+      supportsColorTemperature: true, supportsColorControl: true, supportsMomentary: true,
     };
     const device: DeviceEntry = { deviceId: 'd1', deviceName: 'All', ...allFlags };
     const actions = simulateTapActions(device);

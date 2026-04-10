@@ -353,7 +353,7 @@ export function deviceDetailItemNames(state: AppState): string[] {
   if (device?.supportsAudioMute) items.push('Mute', 'Unmute');
   if (device?.supportsMediaTrackControl) items.push('Prev', 'Next');
   if (device?.supportsTvChannel) items.push('Ch+', 'Ch-');
-  if (device?.supportsMediaInputSource) items.push('HDMI 1', 'HDMI 2', 'HDMI 3', 'TV', 'Optical', 'BT');
+  if (device?.supportsMediaInputSource) items.push('HDMI 1', 'HDMI 2', 'HDMI 3', 'HDMI 4', 'HDMI 5', 'HDMI 6', 'TV', 'Optical', 'BT', 'Aux', 'USB');
   if (device?.supportsWindowShade) items.push('Open', 'Close', 'Pause');
   if (device?.supportsWindowShadeLevel) items.push('Shade +', 'Shade -');
   if (device?.supportsValve) items.push('Open', 'Close');
@@ -364,7 +364,6 @@ export function deviceDetailItemNames(state: AppState): string[] {
   if (device?.supportsThermostatFanMode) items.push('Fan Auto', 'Fan On', 'Fan Circ', 'Fan Sched');
   if (device?.supportsFanSpeed) items.push('Speed +', 'Speed -');
   if (device?.supportsColorTemperature) items.push('Cooler', 'Warmer');
-  if (device?.supportsColorMode) items.push('CT Mode', 'Color Mode');
   if (device?.supportsColorControl) items.push('Red', 'Orange', 'Yellow', 'Green', 'Cyan', 'Blue', 'Purple', 'Pink');
   if (device?.supportsMomentary) items.push('Push');
   if (device?.supportsDimmer) items.push('Dim');

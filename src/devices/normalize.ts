@@ -39,7 +39,6 @@ export function deviceSupportsFanSpeed(d: Device): boolean { return hasCapabilit
 /** thermostatFanMode OR the mega thermostat capability */
 export function deviceSupportsThermostatFanMode(d: Device): boolean { return hasCapability(d, 'thermostatFanMode', 'thermostat'); }
 export function deviceSupportsColorTemperature(d: Device): boolean { return hasCapability(d, 'colorTemperature'); }
-export function deviceSupportsColorMode(d: Device): boolean { return hasCapability(d, 'colorMode'); }
 export function deviceSupportsColorControl(d: Device): boolean { return hasCapability(d, 'colorControl'); }
 export function deviceSupportsMomentary(d: Device): boolean { return hasCapability(d, 'momentary'); }
 
@@ -104,7 +103,6 @@ export function normalizeDevices(devices: Device[]): DeviceEntry[] {
     supportsThermostatFanMode: deviceSupportsThermostatFanMode(d),
     supportsFanSpeed: deviceSupportsFanSpeed(d),
     supportsColorTemperature: deviceSupportsColorTemperature(d),
-    supportsColorMode: deviceSupportsColorMode(d),
     supportsColorControl: deviceSupportsColorControl(d),
     supportsMomentary: deviceSupportsMomentary(d),
   }));

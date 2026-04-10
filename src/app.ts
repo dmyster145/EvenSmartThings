@@ -111,7 +111,7 @@ const DEMO_DEVICES: DeviceEntry[] = [
   { deviceId: 'demo-switch', deviceName: 'Demo: Switch', deviceType: 'Switch', deviceProtocol: 'Demo', supportsSwitch: true },
   { deviceId: 'demo-dimmer', deviceName: 'Demo: Dimmer', deviceType: 'Dimmer Switch', deviceProtocol: 'Demo', supportsSwitch: true, supportsDimmer: true },
   { deviceId: 'demo-color-bulb', deviceName: 'Demo: Color Temp Bulb', deviceType: 'Color Bulb', deviceProtocol: 'Demo', supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true },
-  { deviceId: 'demo-color-rgb', deviceName: 'Demo: RGB Bulb', deviceType: 'Color Bulb', deviceProtocol: 'Demo', supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true, supportsColorMode: true, supportsColorControl: true },
+  { deviceId: 'demo-color-rgb', deviceName: 'Demo: RGB Bulb', deviceType: 'Color Bulb', deviceProtocol: 'Demo', supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true, supportsColorControl: true },
   { deviceId: 'demo-garage', deviceName: 'Demo: Garage Door', deviceType: 'Garage Door', deviceProtocol: 'Demo', supportsGarageDoor: true },
   { deviceId: 'demo-lock', deviceName: 'Demo: Lock', deviceType: 'Lock', deviceProtocol: 'Demo', supportsLock: true },
   { deviceId: 'demo-sonos', deviceName: 'Demo: Sonos Speaker', deviceType: 'Speaker', deviceProtocol: 'Demo', supportsMediaPlayback: true, supportsAudioVolume: true, supportsAudioMute: true, supportsMediaTrackControl: true },
@@ -1953,17 +1953,6 @@ export async function initApp(): Promise<void> {
     }
   }
 
-  async function runColorMode(deviceId: string, mode: 'CT' | 'COLOR'): Promise<void> {
-    try {
-      const response = await executeDeviceCommandViaServer(deviceId, 'colorMode', 'setColorMode', [mode]);
-      const success = await isDeviceCommandSuccess(deviceId, response);
-      await showConfirmation(success ? 'success' : 'failure');
-    } catch (err) {
-      await handleTerminalAuthFailure(err);
-      await showConfirmation('failure');
-    }
-  }
-
   async function runValve(deviceId: string, open: boolean): Promise<void> {
     try {
       const response = await executeDeviceCommandViaServer(deviceId, 'valve', open ? 'open' : 'close');
@@ -2614,13 +2603,18 @@ export async function initApp(): Promise<void> {
             idx += 2;
           }
           if (device.supportsMediaInputSource) {
-            if (listIndex === idx)     { void runMediaInputSource(deviceId, 'HDMI1'); }       // HDMI 1
-            else if (listIndex === idx + 1) { void runMediaInputSource(deviceId, 'HDMI2'); }  // HDMI 2
-            else if (listIndex === idx + 2) { void runMediaInputSource(deviceId, 'HDMI3'); }  // HDMI 3
-            else if (listIndex === idx + 3) { void runMediaInputSource(deviceId, 'digitalTv'); } // TV
-            else if (listIndex === idx + 4) { void runMediaInputSource(deviceId, 'optical'); }   // Optical
-            else if (listIndex === idx + 5) { void runMediaInputSource(deviceId, 'bluetooth'); } // BT
-            idx += 6;
+            if (listIndex === idx)     { void runMediaInputSource(deviceId, 'HDMI1'); }            // HDMI 1
+            else if (listIndex === idx + 1)  { void runMediaInputSource(deviceId, 'HDMI2'); }      // HDMI 2
+            else if (listIndex === idx + 2)  { void runMediaInputSource(deviceId, 'HDMI3'); }      // HDMI 3
+            else if (listIndex === idx + 3)  { void runMediaInputSource(deviceId, 'HDMI4'); }      // HDMI 4
+            else if (listIndex === idx + 4)  { void runMediaInputSource(deviceId, 'HDMI5'); }      // HDMI 5
+            else if (listIndex === idx + 5)  { void runMediaInputSource(deviceId, 'HDMI6'); }      // HDMI 6
+            else if (listIndex === idx + 6)  { void runMediaInputSource(deviceId, 'digitalTv'); }  // TV
+            else if (listIndex === idx + 7)  { void runMediaInputSource(deviceId, 'optical'); }    // Optical
+            else if (listIndex === idx + 8)  { void runMediaInputSource(deviceId, 'bluetooth'); }  // BT
+            else if (listIndex === idx + 9)  { void runMediaInputSource(deviceId, 'aux'); }        // Aux
+            else if (listIndex === idx + 10) { void runMediaInputSource(deviceId, 'USB'); }        // USB
+            idx += 11;
           }
           if (device.supportsWindowShade) {
             if (listIndex === idx) { void runWindowShade(deviceId, 'open'); }           // Open
@@ -2678,11 +2672,6 @@ export async function initApp(): Promise<void> {
           if (device.supportsColorTemperature) {
             if (listIndex === idx) { void runColorTemperature(deviceId, 'cooler'); }  // Cooler
             else if (listIndex === idx + 1) { void runColorTemperature(deviceId, 'warmer'); } // Warmer
-            idx += 2;
-          }
-          if (device.supportsColorMode) {
-            if (listIndex === idx) { void runColorMode(deviceId, 'CT'); }             // CT Mode
-            else if (listIndex === idx + 1) { void runColorMode(deviceId, 'COLOR'); } // Color Mode
             idx += 2;
           }
           if (device.supportsColorControl) {
