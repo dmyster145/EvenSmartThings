@@ -123,6 +123,17 @@ function simulateTapActions(device: DeviceEntry): Array<{ index: number; action:
     actions.push({ index: idx + 1, action: 'warmer' });
     idx += 2;
   }
+  if (device.supportsColorControl) {
+    actions.push({ index: idx,     action: 'color_red' });
+    actions.push({ index: idx + 1, action: 'color_orange' });
+    actions.push({ index: idx + 2, action: 'color_yellow' });
+    actions.push({ index: idx + 3, action: 'color_green' });
+    actions.push({ index: idx + 4, action: 'color_cyan' });
+    actions.push({ index: idx + 5, action: 'color_blue' });
+    actions.push({ index: idx + 6, action: 'color_purple' });
+    actions.push({ index: idx + 7, action: 'color_pink' });
+    idx += 8;
+  }
   if (device.supportsMomentary) {
     actions.push({ index: idx, action: 'push' });
     idx += 1;
@@ -228,6 +239,12 @@ describe('deviceDetailItemNames — individual capabilities', () => {
     expect(deviceDetailItemNames(makeState({ supportsColorTemperature: true }))).toEqual([BACK, 'Cooler', 'Warmer']);
   });
 
+  it('colorControl: 8 named color presets', () => {
+    expect(deviceDetailItemNames(makeState({ supportsColorControl: true }))).toEqual([
+      BACK, 'Red', 'Orange', 'Yellow', 'Green', 'Cyan', 'Blue', 'Purple', 'Pink',
+    ]);
+  });
+
   it('momentary: Push', () => {
     expect(deviceDetailItemNames(makeState({ supportsMomentary: true }))).toEqual([BACK, 'Push']);
   });
@@ -249,6 +266,20 @@ describe('deviceDetailItemNames — realistic devices', () => {
       supportsColorTemperature: true,
     }));
     expect(items).toEqual([BACK, 'On', 'Off', 'Cooler', 'Warmer', 'Dim']);
+  });
+
+  it('RGB color bulb (switch + dimmer + colorTemperature + colorControl)', () => {
+    const items = deviceDetailItemNames(makeState({
+      supportsSwitch: true,
+      supportsDimmer: true,
+      supportsColorTemperature: true,
+      supportsColorControl: true,
+    }));
+    expect(items).toEqual([
+      BACK, 'On', 'Off', 'Cooler', 'Warmer',
+      'Red', 'Orange', 'Yellow', 'Green', 'Cyan', 'Blue', 'Purple', 'Pink',
+      'Dim',
+    ]);
   });
 
   it('Sonos speaker (switch + mediaPlayback + audioVolume + audioMute + mediaTrackControl)', () => {
@@ -360,6 +391,8 @@ describe('TAP index consistency', () => {
   checkConsistency({ supportsThermostatCoolingSetpoint: true }, 'coolingSetpoint');
   checkConsistency({ supportsFanSpeed: true }, 'fanSpeed');
   checkConsistency({ supportsColorTemperature: true }, 'colorTemperature');
+  checkConsistency({ supportsColorControl: true }, 'colorControl');
+  checkConsistency({ supportsSwitch: true, supportsDimmer: true, supportsColorTemperature: true, supportsColorControl: true }, 'rgb-bulb');
   checkConsistency({ supportsMomentary: true }, 'momentary');
 
   // Multi-capability consistency
@@ -407,7 +440,7 @@ describe('deviceDetailItemNames — edge cases', () => {
       supportsWindowShade: true, supportsValve: true, supportsAlarm: true,
       supportsThermostatMode: true, supportsThermostatHeatingSetpoint: true,
       supportsThermostatCoolingSetpoint: true, supportsFanSpeed: true,
-      supportsColorTemperature: true, supportsMomentary: true,
+      supportsColorTemperature: true, supportsColorControl: true, supportsMomentary: true,
     };
     const device: DeviceEntry = { deviceId: 'd1', deviceName: 'All', ...allFlags };
     const actions = simulateTapActions(device);
@@ -424,7 +457,7 @@ describe('deviceDetailItemNames — edge cases', () => {
       supportsWindowShade: true, supportsValve: true, supportsAlarm: true,
       supportsThermostatMode: true, supportsThermostatHeatingSetpoint: true,
       supportsThermostatCoolingSetpoint: true, supportsFanSpeed: true,
-      supportsColorTemperature: true, supportsMomentary: true,
+      supportsColorTemperature: true, supportsColorControl: true, supportsMomentary: true,
     };
     const device: DeviceEntry = { deviceId: 'd1', deviceName: 'All', ...allFlags };
     const actions = simulateTapActions(device);

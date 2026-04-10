@@ -20,6 +20,7 @@ import {
   deviceSupportsThermostatCoolingSetpoint,
   deviceSupportsFanSpeed,
   deviceSupportsColorTemperature,
+  deviceSupportsColorControl,
   deviceSupportsMomentary,
   deviceTypeDisplayName,
   deviceProtocolDisplayName,
@@ -244,6 +245,15 @@ describe('capability detectors', () => {
     });
   });
 
+  describe('deviceSupportsColorControl', () => {
+    it('returns true for colorControl', () => {
+      expect(deviceSupportsColorControl(makeDevice(['colorControl']))).toBe(true);
+    });
+    it('is not triggered by colorTemperature alone', () => {
+      expect(deviceSupportsColorControl(makeDevice(['colorTemperature']))).toBe(false);
+    });
+  });
+
   describe('deviceSupportsMomentary', () => {
     it('returns true for momentary', () => {
       expect(deviceSupportsMomentary(makeDevice(['momentary']))).toBe(true);
@@ -426,6 +436,9 @@ describe('normalizeDevices', () => {
     it('sets supportsColorTemperature for colorTemperature', () => {
       expect(normalizeDevices([makeDevice(['colorTemperature'])])[0].supportsColorTemperature).toBe(true);
     });
+    it('sets supportsColorControl for colorControl', () => {
+      expect(normalizeDevices([makeDevice(['colorControl'])])[0].supportsColorControl).toBe(true);
+    });
     it('sets supportsMomentary for momentary', () => {
       expect(normalizeDevices([makeDevice(['momentary'])])[0].supportsMomentary).toBe(true);
     });
@@ -449,6 +462,7 @@ describe('normalizeDevices', () => {
       expect(entry.supportsThermostatCoolingSetpoint).toBe(false);
       expect(entry.supportsFanSpeed).toBe(false);
       expect(entry.supportsColorTemperature).toBe(false);
+      expect(entry.supportsColorControl).toBe(false);
       expect(entry.supportsMomentary).toBe(false);
     });
 
