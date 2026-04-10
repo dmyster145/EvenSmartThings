@@ -342,7 +342,7 @@ function deviceNamesForListView(state: AppState): string[] {
 }
 
 /** List item names for device-detail view. Order must match the TAP handler in app.ts. */
-function deviceDetailItemNames(state: AppState): string[] {
+export function deviceDetailItemNames(state: AppState): string[] {
   const device = getSelectedDevice(state);
   const items: string[] = [LABEL_BACK];
   if (device?.supportsSwitch) items.push('On', 'Off');
