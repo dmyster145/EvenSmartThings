@@ -102,6 +102,7 @@ import { ImageRawDataUpdate, OsEventTypeList, StartUpPageCreateResult, type Even
 
 const CONFIG_PANEL_ID = 'config';
 const DEMO_ROOM_ID = '__demo__';
+const DEMO_DEVICES_ENABLED = false;
 const AUTH_RECONNECT_MESSAGE = 'SmartThings session expired or is unauthorized. Reconnect to continue.';
 const AUTH_CONFIG_MISSING_MESSAGE = 'SmartThings OAuth is not configured on the backend.';
 const AUTH_DISCONNECTED_MESSAGE = 'SmartThings is not connected for this device.';
@@ -1271,7 +1272,7 @@ export async function initApp(): Promise<void> {
             roomId: r.roomId ?? '',
             roomName: (r.name ?? 'Room').slice(0, SCENE_NAME_MAX_LEN),
           })),
-          { roomId: DEMO_ROOM_ID, roomName: 'Demo Devices' },
+          ...(DEMO_DEVICES_ENABLED ? [{ roomId: DEMO_ROOM_ID, roomName: 'Demo Devices' }] : []),
         ],
       });
       store.dispatch({ type: 'ALL_DEVICES_LOADED', devices: normalizeDevices(devicesRes) });
@@ -2130,7 +2131,7 @@ export async function initApp(): Promise<void> {
   }
 
   async function loadDevicesForRoom(roomId: string): Promise<void> {
-    if (roomId === DEMO_ROOM_ID) {
+    if (DEMO_DEVICES_ENABLED && roomId === DEMO_ROOM_ID) {
       store.dispatch({ type: 'DEVICES_LOADED', devices: DEMO_DEVICES });
       refreshPage();
       return;
