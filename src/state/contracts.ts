@@ -20,6 +20,8 @@ export interface DeviceEntry {
   supportsDimmer?: boolean;
   /** True if device has garageDoorControl or doorControl capability (open/close). */
   supportsGarageDoor?: boolean;
+  /** The actual capability ID to use when sending open/close commands ('garageDoorControl' or 'doorControl'). */
+  garageDoorCapability?: 'garageDoorControl' | 'doorControl';
   /** True if device has lock capability (lock/unlock). */
   supportsLock?: boolean;
   /** True if device has mediaPlayback capability (play/pause). */

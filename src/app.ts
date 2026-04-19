@@ -65,6 +65,7 @@ import { EvenHubBridge } from './evenhub/bridge';
 import {
   checkPendingAuth,
   clearPendingAuth,
+  clearCachedSessionStatus,
   consumeSessionTokenFromUrl,
   disconnectSmartThings,
   executeBatchDeviceCommandsViaServer,
@@ -74,7 +75,9 @@ import {
   getSmartThingsAccessToken,
   buildCrossDeviceConnectUrl,
   preparePendingAuth,
+  readCachedSessionStatus,
   readStoredSessionToken,
+  writeCachedSessionStatus,
   writeStoredSessionToken,
   SMARTTHINGS_DEBUG_EVENT,
   startSmartThingsConnect,
@@ -1087,6 +1090,7 @@ export async function initApp(): Promise<void> {
   }
 
   let initialSessionStatus: SessionStatus;
+  let usedCachedSession = false;
   try {
     appendDebugLog(`Startup: href=${window.location.href}`);
     appendDebugLog(`Startup: urlSessionToken=${!!urlSessionToken} apiBase=${APP_VERSION !== 'dev' ? typeof __APP_VERSION__ !== 'undefined' ? 'set' : 'unset' : 'dev'}`);
@@ -1094,24 +1098,33 @@ export async function initApp(): Promise<void> {
     try { pendingId = localStorage.getItem('smartthings_controls_pending_auth'); } catch { /* ignore */ }
     appendDebugLog(`Startup: pendingAuthId=${pendingId ?? 'none'}`);
 
-    initialSessionStatus = await getSessionStatus();
-    appendDebugLog(`Session check: authenticated=${initialSessionStatus.authenticated} configured=${initialSessionStatus.configured}`);
+    const cachedSession = readCachedSessionStatus();
+    if (cachedSession) {
+      // Use cached session to show UI immediately; verify in background.
+      initialSessionStatus = cachedSession;
+      usedCachedSession = true;
+      appendDebugLog('Session check: using cached session status (background verify pending)');
+    } else {
+      initialSessionStatus = await getSessionStatus();
+      appendDebugLog(`Session check: authenticated=${initialSessionStatus.authenticated} configured=${initialSessionStatus.configured}`);
 
-    // If not authenticated, check if OAuth completed outside this WebView
-    // (e.g. iOS Universal Links opened the SmartThings app → Safari).
-    if (!initialSessionStatus.authenticated && !urlSessionToken) {
-      appendDebugLog(`Pending auth check starting: id=${pendingId ?? 'none'}`);
-      const pendingToken = await checkPendingAuth();
-      appendDebugLog(`Pending auth result: token=${pendingToken ? 'recovered' : 'none'}`);
-      if (pendingToken) {
-        await hub.setLocalStorage(SESSION_BRIDGE_KEY, pendingToken);
-        appendDebugLog('Pending auth recovered session from external OAuth flow.');
-        initialSessionStatus = await getSessionStatus();
-        appendDebugLog(`Post-recovery session: authenticated=${initialSessionStatus.authenticated}`);
+      // If not authenticated, check if OAuth completed outside this WebView
+      // (e.g. iOS Universal Links opened the SmartThings app → Safari).
+      if (!initialSessionStatus.authenticated && !urlSessionToken) {
+        appendDebugLog(`Pending auth check starting: id=${pendingId ?? 'none'}`);
+        const pendingToken = await checkPendingAuth();
+        appendDebugLog(`Pending auth result: token=${pendingToken ? 'recovered' : 'none'}`);
+        if (pendingToken) {
+          await hub.setLocalStorage(SESSION_BRIDGE_KEY, pendingToken);
+          appendDebugLog('Pending auth recovered session from external OAuth flow.');
+          initialSessionStatus = await getSessionStatus();
+          appendDebugLog(`Post-recovery session: authenticated=${initialSessionStatus.authenticated}`);
+        }
       }
+      if (initialSessionStatus.authenticated) writeCachedSessionStatus(initialSessionStatus);
     }
     appendDebugLog(
-      `Session status loaded. authenticated=${initialSessionStatus.authenticated} configured=${initialSessionStatus.configured}`
+      `Session status loaded. authenticated=${initialSessionStatus.authenticated} configured=${initialSessionStatus.configured} cached=${usedCachedSession}`
     );
   } catch (err) {
     console.warn('[SmartThingsControls] getSessionStatus error:', err);
@@ -1133,6 +1146,21 @@ export async function initApp(): Promise<void> {
   authUI.showConnectedState(initialSessionStatus);
   appendDebugLog('SmartThings session is active.');
   void requestWakeLock('startup');
+
+  if (usedCachedSession) {
+    void getSessionStatus().then(fresh => {
+      appendDebugLog(`Background session verify: authenticated=${fresh.authenticated}`);
+      if (fresh.authenticated) {
+        writeCachedSessionStatus(fresh);
+        authUI.setConnectionStatus(formatSessionExpiry(fresh.session?.expiresAt));
+      } else {
+        clearCachedSessionStatus();
+        // API calls will fail with 401 and handleTerminalAuthFailure will show the auth panel.
+      }
+    }).catch(() => {
+      // Ignore background check errors; API call failures will surface auth issues.
+    });
+  }
 
   const store = createStore(buildInitialState());
   const storedLaunchResumePromise = getStoredLaunchResume(hub).catch(() => null);
@@ -1801,10 +1829,10 @@ export async function initApp(): Promise<void> {
     }
   }
 
-  async function runGarageDoor(deviceId: string, open: boolean): Promise<void> {
+  async function runGarageDoor(deviceId: string, open: boolean, capability: 'garageDoorControl' | 'doorControl' = 'garageDoorControl'): Promise<void> {
     try {
-      appendDebugLog(`Garage door requested. deviceId=${deviceId} command=${open ? 'open' : 'close'}`);
-      const response = await executeDeviceCommandViaServer(deviceId, 'garageDoorControl', open ? 'open' : 'close');
+      appendDebugLog(`Garage door requested. deviceId=${deviceId} capability=${capability} command=${open ? 'open' : 'close'}`);
+      const response = await executeDeviceCommandViaServer(deviceId, capability, open ? 'open' : 'close');
       const success = await isDeviceCommandSuccess(deviceId, response);
       appendDebugLog(`Garage door result. deviceId=${deviceId} success=${success}`);
       await showConfirmation(success ? 'success' : 'failure');
@@ -2568,8 +2596,9 @@ export async function initApp(): Promise<void> {
             idx += 2;
           }
           if (device.supportsGarageDoor) {
-            if (listIndex === idx) { void runGarageDoor(deviceId, true); }            // Open
-            else if (listIndex === idx + 1) { void runGarageDoor(deviceId, false); }  // Close
+            const garageCap = device.garageDoorCapability ?? 'garageDoorControl';
+            if (listIndex === idx) { void runGarageDoor(deviceId, true, garageCap); }            // Open
+            else if (listIndex === idx + 1) { void runGarageDoor(deviceId, false, garageCap); }  // Close
             idx += 2;
           }
           if (device.supportsLock) {

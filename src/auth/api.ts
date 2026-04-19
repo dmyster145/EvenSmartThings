@@ -46,6 +46,40 @@ const API_BASE: string =
 
 const SESSION_TOKEN_STORAGE_KEY = 'smartthings_controls_bearer_session';
 const PENDING_AUTH_STORAGE_KEY = 'smartthings_controls_pending_auth';
+const SESSION_CACHE_KEY = 'smartthings_controls_session_cache';
+const SESSION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+type SessionCache = { status: SessionStatus; cachedAt: number };
+
+export function readCachedSessionStatus(): SessionStatus | null {
+  try {
+    const raw = localStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) return null;
+    const cache = JSON.parse(raw) as SessionCache;
+    if (!cache.status?.authenticated) return null;
+    if (Date.now() - cache.cachedAt > SESSION_CACHE_TTL_MS) return null;
+    return cache.status;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCachedSessionStatus(status: SessionStatus): void {
+  try {
+    const cache: SessionCache = { status, cachedAt: Date.now() };
+    localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // ignore
+  }
+}
+
+export function clearCachedSessionStatus(): void {
+  try {
+    localStorage.removeItem(SESSION_CACHE_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 export function readStoredSessionToken(): string | null {
   try {
@@ -203,6 +237,7 @@ export async function disconnectSmartThings(): Promise<void> {
   });
   await parseJsonResponse(response);
   writeStoredSessionToken(null);
+  clearCachedSessionStatus();
 }
 
 async function executeSmartThingsRelayRequest<T>(body: Record<string, unknown>): Promise<T> {

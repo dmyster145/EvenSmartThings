@@ -42,6 +42,7 @@ export function reduce(state: AppState, action: Action): AppState {
         listPageIndex: 0,
         focusedListIndex: 0,
         selectedRoomId: action.roomId,
+        devices: [],
         devicesStatus: 'loading',
         roomStats: null,
       };

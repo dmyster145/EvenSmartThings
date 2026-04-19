@@ -18,6 +18,11 @@ export function hasCapability(d: Device, ...ids: string[]): boolean {
 export function deviceSupportsSwitch(d: Device): boolean { return hasCapability(d, 'switch'); }
 export function deviceSupportsDimmer(d: Device): boolean { return hasCapability(d, 'switchLevel'); }
 export function deviceSupportsGarageDoor(d: Device): boolean { return hasCapability(d, 'garageDoorControl', 'doorControl'); }
+export function deviceGarageDoorCapability(d: Device): 'garageDoorControl' | 'doorControl' | undefined {
+  if (hasCapability(d, 'garageDoorControl')) return 'garageDoorControl';
+  if (hasCapability(d, 'doorControl')) return 'doorControl';
+  return undefined;
+}
 export function deviceSupportsLock(d: Device): boolean { return hasCapability(d, 'lock'); }
 export function deviceSupportsMediaPlayback(d: Device): boolean { return hasCapability(d, 'mediaPlayback'); }
 export function deviceSupportsAudioVolume(d: Device): boolean { return hasCapability(d, 'audioVolume'); }
@@ -86,6 +91,7 @@ export function normalizeDevices(devices: Device[]): DeviceEntry[] {
     supportsSwitch: deviceSupportsSwitch(d),
     supportsDimmer: deviceSupportsDimmer(d),
     supportsGarageDoor: deviceSupportsGarageDoor(d),
+    garageDoorCapability: deviceGarageDoorCapability(d),
     supportsLock: deviceSupportsLock(d),
     supportsMediaPlayback: deviceSupportsMediaPlayback(d),
     supportsAudioVolume: deviceSupportsAudioVolume(d),
