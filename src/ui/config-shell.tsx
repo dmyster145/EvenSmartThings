@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useState } from 'react';
+import { type CSSProperties, type ReactElement, type ReactNode, useState } from 'react';
 import {
   AppShell,
   Badge,
@@ -7,7 +7,6 @@ import {
   Page,
   ScreenHeader,
   SectionHeader,
-  Select,
   SettingsGroup,
   StatusDot,
 } from 'even-toolkit/web';
@@ -22,8 +21,7 @@ import {
   IcStatusSaved,
 } from 'even-toolkit/web/icons/svg-icons';
 
-declare const __APP_VERSION__: string;
-const APP_VERSION: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+import { APP_VERSION } from '../version';
 
 type ListOrderKey = 'main' | 'scenes' | 'rooms' | 'devices' | 'favorites';
 type CompanionTab = 'overview' | 'organize' | 'connection';
@@ -312,7 +310,13 @@ function OverviewTab(): ReactElement {
 
       <SettingsGroup label="App Launch">
         <SettingsRow label="Default view" htmlFor="glasses-menu-default">
-          <Select id="glasses-menu-default" defaultValue="main" options={GLASSES_MENU_OPTIONS} />
+          <select id="glasses-menu-default" defaultValue="main" className="legacy-select">
+            {GLASSES_MENU_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </SettingsRow>
       </SettingsGroup>
 
@@ -355,7 +359,13 @@ function OrganizeTab(): ReactElement {
         {LIST_ORDER_ROWS.map(({ key, label }) => (
           <div key={key}>
             <SettingsRow label={label} htmlFor={`list-order-${key}`}>
-              <Select id={`list-order-${key}`} defaultValue="alphabetical" options={LIST_ORDER_OPTIONS} />
+              <select id={`list-order-${key}`} defaultValue="alphabetical" className="legacy-select">
+                {LIST_ORDER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </SettingsRow>
             <CustomOrderPanel list={key} />
           </div>
@@ -408,15 +418,11 @@ function OrganizeTab(): ReactElement {
           <label htmlFor="rename-type" className="legacy-field-label">
             Type
           </label>
-          <Select
-            id="rename-type"
-            defaultValue="scene"
-            options={[
-              { value: 'scene', label: 'Scene' },
-              { value: 'room', label: 'Room' },
-              { value: 'device', label: 'Device' },
-            ]}
-          />
+          <select id="rename-type" defaultValue="scene" className="legacy-select">
+            <option value="scene">Scene</option>
+            <option value="room">Room</option>
+            <option value="device">Device</option>
+          </select>
           <label htmlFor="rename-item" className="legacy-field-label mt-3">
             Item
           </label>
@@ -484,12 +490,83 @@ function ConnectionTab(): ReactElement {
       <SectionHeader title="Companion Access" />
       <InfoRows label="Operational Notes" rows={CONNECTION_ROWS} />
 
-      <SectionHeader title="Debug" />
+      <SectionHeader title="Debugging" />
       <SurfaceCard>
         <p className="text-[15px] tracking-[-0.15px] text-text">
-          Keep the runtime console off during normal use. Turn it on only when you need to capture phone-side logs for troubleshooting.
+          Runtime log from the companion. Use it to capture phone-side activity when troubleshooting.
         </p>
+        <DebugLogPanel />
       </SurfaceCard>
+    </>
+  );
+}
+
+function DebugLogPanel(): ReactElement {
+  // Inline debug-log panel rendered inside the Debugging card on the
+  // Connection tab. Keeps the same id="debug-log" that pushDebugLine() in
+  // app.ts targets via getElementById. Copy/Clear buttons sit above the
+  // dark terminal box and fire custom events on window so the handlers can
+  // live inside initApp's closure where debugLines is owned.
+  const buttonStyle: CSSProperties = {
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    background: 'transparent',
+    color: 'inherit',
+    border: '1px solid var(--color-border, #d4d4d4)',
+    borderRadius: 6,
+    padding: '6px 14px',
+    fontSize: 12,
+    fontWeight: 500,
+    fontFamily: 'inherit',
+    minHeight: 32,
+    minWidth: 72,
+    cursor: 'pointer',
+    lineHeight: 1.2,
+  };
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+        <button
+          type="button"
+          data-debug-action="copy"
+          style={buttonStyle}
+          onClick={() => window.dispatchEvent(new CustomEvent('smartthings:debug-log-copy'))}
+        >
+          Copy log
+        </button>
+        <button
+          type="button"
+          data-debug-action="clear"
+          style={buttonStyle}
+          onClick={() => window.dispatchEvent(new CustomEvent('smartthings:debug-log-clear'))}
+        >
+          Clear log
+        </button>
+      </div>
+      <div
+        id="debug-log-container"
+        style={{
+          marginTop: 12,
+          maxHeight: '35vh',
+          minHeight: 120,
+          padding: '10px 12px',
+          background: '#111',
+          color: '#fff',
+          borderRadius: 8,
+          overflowY: 'auto',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        }}
+      >
+        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', color: '#9ad', marginBottom: 6 }}>
+          Debug log
+        </div>
+        <pre
+          id="debug-log"
+          style={{ margin: 0, fontSize: 11, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#fff' }}
+        >
+          [waiting for log lines…]
+        </pre>
+      </div>
     </>
   );
 }
@@ -605,18 +682,6 @@ export function ConfigShell(): ReactElement {
             <ConnectionTab />
           </div>
         </section>
-
-        <div id="debug-log-container" className="debug-console-panel mt-4" style={{ display: 'none' }}>
-          <div className="btn-group">
-            <Button id="copy-debug-log-btn" type="button" variant="secondary" size="sm">
-              Copy log
-            </Button>
-            <Button id="clear-debug-log-btn" type="button" variant="secondary" size="sm">
-              Clear log
-            </Button>
-          </div>
-          <pre id="debug-log" className="debug-console-output" aria-live="polite" />
-        </div>
 
         <div id="config-toast" className="toast" role="status" aria-live="polite" style={{ display: 'none' }} />
 

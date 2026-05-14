@@ -26,7 +26,12 @@ export function reduce(state: AppState, action: Action): AppState {
         listPageIndex: 0,
         focusedListIndex: 0,
         ...(action.view === 'rooms' ? { roomsStatus: 'loading' as const } : {}),
-        ...(action.view === 'devices' ? { selectedDeviceId: null, deviceStats: null } : {}),
+        // Top-level Devices from main: clear selectedRoomId so back-navigation
+        // returns to main, not to the previously-selected room. The room-based
+        // path uses NAV_ROOM, which sets selectedRoomId itself.
+        ...(action.view === 'devices'
+          ? { selectedDeviceId: null, deviceStats: null, selectedRoomId: null }
+          : {}),
         ...(action.view === 'device-detail' || action.view === 'device-dim'
           ? {}
           : { selectedDeviceId: null, deviceStats: null }),

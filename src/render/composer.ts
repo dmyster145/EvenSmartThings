@@ -499,6 +499,28 @@ export function composeStartupPage(state: AppState): CreateStartUpPageContainer 
   });
 }
 
+/** Minimal full-screen text page used as the first paint after bridge init,
+ *  so the wearer sees something immediately while session/network work runs. */
+export function composeLoadingStartupPage(message: string): CreateStartUpPageContainer {
+  const textObjects = buildFullScreenTextContainers(message);
+  return new CreateStartUpPageContainer({
+    containerTotalNum: textObjects.length,
+    textObject: textObjects,
+  });
+}
+
+/** Rebuild equivalent of composeStartupPage — used to swap from the loading
+ *  page to the menu without a second createStartUpPageContainer call. */
+export function composeMenuRebuildPage(state: AppState): RebuildPageContainer {
+  const textObjects = buildStartupTextContainers(state);
+  const imageObjects = buildImageContainers();
+  return new RebuildPageContainer({
+    containerTotalNum: textObjects.length + imageObjects.length,
+    textObject: textObjects,
+    imageObject: imageObjects,
+  });
+}
+
 export function composePageForState(state: AppState, focusIndex?: number): RebuildPageContainer {
   const listObjects = buildListContainers(state, focusIndex);
   const textObjects = buildStatsTextContainers(state);

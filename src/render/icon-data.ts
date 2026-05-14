@@ -33,8 +33,10 @@ import {
   getBmpFileSize,
 } from './bmp-constants';
 
-/** Result for confirmation icon: all success, some success (partial), or all failed. */
-export type ConfirmationResult = 'success' | 'partial' | 'failure';
+/** Result for confirmation icon. 'pending' is a transient indicator shown while
+ *  a command is in flight; it never auto-dismisses and is replaced by the final
+ *  result (success/partial/failure) once the relay request completes. */
+export type ConfirmationResult = 'success' | 'partial' | 'failure' | 'pending';
 
 const ICON_BASE = '/icons';
 const CHECKMARK_URL = `${ICON_BASE}/checkmark.png`;
@@ -225,6 +227,16 @@ function buildConfirmationPlaceholder(result: ConfirmationResult): number[] {
       fillRect(data, w, h, cx - pad(10) + i, cy - pad(12) + i, Math.max(1, pad(i * 2)), 1, WHITE);
     }
     fillRect(data, w, h, cx - pad(4), cy, pad(8), pad(14), WHITE);
+  } else if (result === 'pending') {
+    // Three horizontal dots — a "thinking" indicator while a command is in flight.
+    const dotSize = Math.max(2, pad(6));
+    const gap = Math.max(2, pad(4));
+    const totalWidth = dotSize * 3 + gap * 2;
+    const startX = cx - Math.floor(totalWidth / 2);
+    const dotY = cy - Math.floor(dotSize / 2);
+    for (let i = 0; i < 3; i++) {
+      fillRect(data, w, h, startX + i * (dotSize + gap), dotY, dotSize, dotSize, WHITE);
+    }
   } else {
     // partial fallback: two short vertical bars close together
     const gap = Math.max(1, pad(4));
@@ -242,6 +254,8 @@ function getCachedIconForResult(result: ConfirmationResult): CachedIcon | null {
       return iconCache.error;
     case 'partial':
       return iconCache.exclamation;
+    case 'pending':
+      return null; // No PNG asset; always use the generated three-dot placeholder.
   }
 }
 

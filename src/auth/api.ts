@@ -240,63 +240,92 @@ export async function disconnectSmartThings(): Promise<void> {
   clearCachedSessionStatus();
 }
 
+// Per-request timeout for the relay fetch. Vercel function cold starts can add
+// 1–3s of latency; 8s gives enough headroom while still failing fast on a stuck
+// connection. On timeout or transient failure (network error, 502/503/504) we
+// retry once before surfacing the error to the caller.
+const RELAY_REQUEST_TIMEOUT_MS = 8000;
+const RELAY_RETRY_DELAY_MS = 200;
+
+function isTransientStatus(status: number): boolean {
+  return status === 502 || status === 503 || status === 504;
+}
+
+async function fetchRelayOnce<T>(
+  envelope: { requestId: string; body: Record<string, unknown> },
+  summary: string,
+  attempt: number,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RELAY_REQUEST_TIMEOUT_MS);
+  emitSmartThingsDebug(
+    `Relay fetch dispatch: requestId=${envelope.requestId} attempt=${attempt} ${summary} visibility=${getVisibilityState()}`
+  );
+  try {
+    const response = await fetch(`${API_BASE}/api/smartthings/execute`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...getSessionAuthHeaders(),
+      },
+      cache: 'no-store',
+      keepalive: true,
+      signal: controller.signal,
+      body: JSON.stringify(envelope.body),
+    });
+    const payload = await response.json().catch(() => ({}));
+    emitSmartThingsDebug(
+      `Relay fetch response: requestId=${typeof (payload as { requestId?: unknown }).requestId === 'string' ? String((payload as { requestId: string }).requestId) : envelope.requestId} attempt=${attempt} ${summary} status=${response.status} ok=${response.ok}`
+        + (response.ok ? '' : ` error=${typeof (payload as { error?: unknown }).error === 'string' ? String((payload as { error: string }).error) : 'unknown'}`),
+      !response.ok
+    );
+    if (!response.ok) {
+      const message =
+        typeof (payload as { error?: unknown }).error === 'string'
+          ? String((payload as { error: string }).error)
+          : `Request failed with status ${response.status}`;
+      const err = new Error(message) as HttpError;
+      err.status = response.status;
+      throw err;
+    }
+    return payload as T;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function executeSmartThingsRelayRequest<T>(body: Record<string, unknown>): Promise<T> {
   const envelope = createRelayEnvelope(body, 'fetch');
   const summary = summarizeRelayPayload(envelope.body);
-  emitSmartThingsDebug(
-    `Relay fetch dispatch: requestId=${envelope.requestId} ${summary} visibility=${getVisibilityState()}`
-  );
-  const response = await fetch(`${API_BASE}/api/smartthings/execute`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      ...getSessionAuthHeaders(),
-    },
-    cache: 'no-store',
-    keepalive: true,
-    body: JSON.stringify(envelope.body),
-  });
-  const payload = await response.json().catch(() => ({}));
-  emitSmartThingsDebug(
-    `Relay fetch response: requestId=${typeof (payload as { requestId?: unknown }).requestId === 'string' ? String((payload as { requestId: string }).requestId) : envelope.requestId} ${summary} status=${response.status} ok=${response.ok}`
-      + (response.ok ? '' : ` error=${typeof (payload as { error?: unknown }).error === 'string' ? String((payload as { error: string }).error) : 'unknown'}`),
-    !response.ok
-  );
-  if (!response.ok) {
-    const message =
-      typeof (payload as { error?: unknown }).error === 'string'
-        ? String((payload as { error: string }).error)
-        : `Request failed with status ${response.status}`;
-    const err = new Error(message) as HttpError;
-    err.status = response.status;
-    throw err;
+  try {
+    return await fetchRelayOnce<T>(envelope, summary, 1);
+  } catch (err) {
+    const httpStatus = (err as HttpError | undefined)?.status;
+    const isAbort = err instanceof DOMException && err.name === 'AbortError';
+    const isTransientHttp = typeof httpStatus === 'number' && isTransientStatus(httpStatus);
+    const isNetworkError = err instanceof TypeError; // fetch network failure
+    if (!isAbort && !isTransientHttp && !isNetworkError) {
+      throw err;
+    }
+    emitSmartThingsDebug(
+      `Relay fetch retry: requestId=${envelope.requestId} reason=${isAbort ? 'timeout' : isTransientHttp ? `http-${httpStatus}` : 'network'} ${summary}`,
+      true,
+    );
+    await new Promise((r) => setTimeout(r, RELAY_RETRY_DELAY_MS));
+    return await fetchRelayOnce<T>(envelope, summary, 2);
   }
-  return payload as T;
 }
 
-function shouldUseBackgroundBeacon(): boolean {
-  return typeof document !== 'undefined' && document.visibilityState !== 'visible' && typeof navigator.sendBeacon === 'function';
-}
-
-function sendSmartThingsBeacon(body: Record<string, unknown>): boolean {
-  if (!shouldUseBackgroundBeacon()) return false;
-  const envelope = createRelayEnvelope(body, 'beacon');
-  const summary = summarizeRelayPayload(envelope.body);
-  const payload = new Blob([JSON.stringify(envelope.body)], { type: 'application/json' });
-  const accepted = navigator.sendBeacon(`${API_BASE}/api/smartthings/execute`, payload);
-  emitSmartThingsDebug(
-    `Relay beacon ${accepted ? 'accepted' : 'rejected'}: requestId=${envelope.requestId} ${summary} visibility=${getVisibilityState()}`,
-    !accepted
-  );
-  return accepted;
-}
+// Note: previously dispatched commands via navigator.sendBeacon when the page
+// was hidden, but that returns "success" on queue acceptance — not delivery.
+// When the beacon never transmitted (transient network, suspended radio), the
+// glasses showed a success icon while the device didn't move, forcing the user
+// to re-tap. We now always use fetch + keepalive: true, which survives
+// backgrounding on modern Safari and reports the real status.
 
 export async function executeSceneViaServer(sceneId: string): Promise<SmartThingsRelayResponse> {
-  if (sendSmartThingsBeacon({ kind: 'scene', sceneId })) {
-    return { status: 'success' };
-  }
   return executeSmartThingsRelayRequest<SmartThingsRelayResponse>({
     kind: 'scene',
     sceneId,
@@ -309,17 +338,6 @@ export async function executeDeviceCommandViaServer(
   command: string,
   args: unknown[] = []
 ): Promise<SmartThingsRelayResponse> {
-  if (
-    sendSmartThingsBeacon({
-      kind: 'device',
-      deviceId,
-      capability,
-      command,
-      arguments: args,
-    })
-  ) {
-    return { status: 'success', results: [] };
-  }
   return executeSmartThingsRelayRequest<SmartThingsRelayResponse>({
     kind: 'device',
     deviceId,
@@ -332,16 +350,6 @@ export async function executeDeviceCommandViaServer(
 export async function executeBatchDeviceCommandsViaServer(
   commands: DeviceCommandPayload[]
 ): Promise<SmartThingsBatchRelayResponse> {
-  if (sendSmartThingsBeacon({ kind: 'batch-device', commands })) {
-    return {
-      results: commands.map((entry) => ({
-        deviceId: entry.deviceId,
-        ok: true,
-        status: 'queued',
-        results: [],
-      })),
-    };
-  }
   return executeSmartThingsRelayRequest<SmartThingsBatchRelayResponse>({
     kind: 'batch-device',
     commands,

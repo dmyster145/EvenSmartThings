@@ -6,8 +6,7 @@
  * subscribe events. Tap on list runs scene.
  */
 
-declare const __APP_VERSION__: string;
-const APP_VERSION: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+import { APP_VERSION } from './version';
 
 // Deep imports avoid the package barrel, which pulls server-only signature deps (http-signature/sshpk → crypto).
 import { SmartThingsClient } from '@smartthings/core-sdk/dist/st-client';
@@ -21,6 +20,8 @@ import type { AppState, SceneEntry, DeviceEntry, GlassesMenuDefault, ListOrderPr
 import { mapEvenHubEvent } from './input/actions';
 import {
   composeStartupPage,
+  composeLoadingStartupPage,
+  composeMenuRebuildPage,
   composePageForState,
   composeListOnlyPage,
   composeTextFallbackPage,
@@ -739,8 +740,12 @@ async function runExecuteScene(
     `[SmartThingsControls] Scene command requested. sceneId=${scene.sceneId} visibility=${typeof document !== 'undefined' ? document.visibilityState : 'unknown'}`
   );
   store.dispatch({ type: 'EXECUTE_START' });
+  // Show a "thinking" indicator if the relay takes longer than 350ms.
+  // Cleared as soon as the relay completes (success or error) so fast commands
+  // skip the extra image update entirely.
+  const pendingTimer = setTimeout(() => { void showConfirmation('pending'); }, 350);
   try {
-    const result = await executeSceneViaServer(scene.sceneId);
+    const result = await executeSceneViaServer(scene.sceneId).finally(() => clearTimeout(pendingTimer));
     const status = result?.status;
     const success = status === 'success';
 
@@ -777,10 +782,11 @@ export async function initApp(): Promise<void> {
 
   const hub = new EvenHubBridge();
   const toggleDebugBtn = document.getElementById('toggle-debug-btn');
-  const copyDebugLogBtn = document.getElementById('copy-debug-log-btn') as HTMLButtonElement | null;
-  const clearDebugLogBtn = document.getElementById('clear-debug-log-btn') as HTMLButtonElement | null;
-  const debugLogContainer = document.getElementById('debug-log-container');
-  const debugLog = document.getElementById('debug-log');
+  // Live lookups (not cached) — React may mount/unmount the debug panel after
+  // initApp runs (HMR, tab switch, conditional render). A captured reference
+  // would point at a detached node and silently swallow log writes.
+  const getDebugLogContainer = (): HTMLElement | null => document.getElementById('debug-log-container');
+  const getDebugLogPre = (): HTMLElement | null => document.getElementById('debug-log');
   const debugLines: string[] = [];
   type WakeLockSentinelLike = {
     released?: boolean;
@@ -792,8 +798,9 @@ export async function initApp(): Promise<void> {
   let wakeLockFailureLogged = false;
 
   function setDebugVisible(visible: boolean): void {
-    if (!debugLogContainer) return;
-    debugLogContainer.style.display = visible ? 'block' : 'none';
+    const container = getDebugLogContainer();
+    if (!container) return;
+    container.style.display = visible ? 'block' : 'none';
     if (toggleDebugBtn) {
       toggleDebugBtn.textContent = visible ? 'Disable debug console' : 'Enable debug console';
     }
@@ -803,7 +810,8 @@ export async function initApp(): Promise<void> {
     const line = `[${new Date().toLocaleTimeString('en-US', { hour12: false })}] ${message}`;
     debugLines.push(line);
     if (debugLines.length > 120) debugLines.shift();
-    if (debugLog) debugLog.textContent = debugLines.join('\n');
+    const pre = getDebugLogPre();
+    if (pre) pre.textContent = debugLines.join('\n');
   }
 
   function appendDebugLog(message: string, reveal = false): void {
@@ -878,31 +886,35 @@ export async function initApp(): Promise<void> {
     }
   }
 
-  if (toggleDebugBtn && debugLogContainer) {
+  if (toggleDebugBtn) {
     toggleDebugBtn.onclick = () => {
-      const visible = debugLogContainer.style.display !== 'none';
+      const container = getDebugLogContainer();
+      if (!container) return;
+      const visible = container.style.display !== 'none';
       setDebugVisible(!visible);
     };
   }
-  if (copyDebugLogBtn) {
-    copyDebugLogBtn.onclick = async () => {
-      const content = debugLines.join('\n');
-      if (!content) return;
-      try {
-        await copyTextToClipboard(content);
-        appendDebugLog('Debug log copied to clipboard.');
-      } catch (err) {
-        appendDebugLog(`Debug log copy failed: ${getErrorMessage(err)}`, true);
-      }
-    };
-  }
-  if (clearDebugLogBtn) {
-    clearDebugLogBtn.onclick = () => {
-      debugLines.length = 0;
-      if (debugLog) debugLog.textContent = '';
-    };
-  }
-  setDebugVisible(false);
+  // Copy / Clear buttons live inside the React DebugLogPanel; they fire custom
+  // events on window so the handlers can use debugLines (closure-scoped here).
+  // Listeners are added once per page load — no risk of duplicates from HMR
+  // because main.ts only calls initApp() on the initial module load.
+  window.addEventListener('smartthings:debug-log-copy', async () => {
+    const content = debugLines.join('\n');
+    if (!content) return;
+    try {
+      await copyTextToClipboard(content);
+      appendDebugLog('Debug log copied to clipboard.');
+    } catch (err) {
+      appendDebugLog(`Debug log copy failed: ${getErrorMessage(err)}`, true);
+    }
+  });
+  window.addEventListener('smartthings:debug-log-clear', () => {
+    debugLines.length = 0;
+    const pre = getDebugLogPre();
+    if (pre) pre.textContent = '';
+  });
+  // Panel is rendered inline by ConfigShell and visible by default; the
+  // toggle buttons that used to hide/show it no longer exist in the UI.
 
   try {
     await hub.init();
@@ -933,6 +945,19 @@ export async function initApp(): Promise<void> {
       showPanel(OPEN_IN_EVEN_ID);
     }
     return;
+  }
+
+  // Paint a minimal "Starting…" page on the glasses immediately, so the
+  // wearer sees something within the first BLE roundtrip rather than after
+  // session/network work. The full menu replaces this via updatePage() below.
+  // This is the ONLY createStartUpPageContainer call on the launch path; every
+  // subsequent paint uses rebuildPageContainer / textContainerUpgrade per the
+  // EvenHub SDK guidance.
+  try {
+    const loadingResult = await hub.setupPage(composeLoadingStartupPage('Starting SmartThings…'));
+    appendDebugLog(`Loading page result: ${describeStartUpPageResult(loadingResult.code)}`);
+  } catch (err) {
+    appendDebugLog(`Loading page error: ${getErrorMessage(err)}`);
   }
 
   // The Even bridge's setLocalStorage/getLocalStorage is backed by native app storage
@@ -1078,9 +1103,11 @@ export async function initApp(): Promise<void> {
 
   // Wire up secondary debug toggle button (shown alongside Refresh button).
   const toggleDebugBtn2 = document.getElementById('toggle-debug-btn-2');
-  if (toggleDebugBtn2 && debugLogContainer) {
+  if (toggleDebugBtn2) {
     toggleDebugBtn2.onclick = () => {
-      const visible = debugLogContainer.style.display !== 'none';
+      const container = getDebugLogContainer();
+      if (!container) return;
+      const visible = container.style.display !== 'none';
       setDebugVisible(!visible);
     };
   }
@@ -1093,7 +1120,7 @@ export async function initApp(): Promise<void> {
   let usedCachedSession = false;
   try {
     appendDebugLog(`Startup: href=${window.location.href}`);
-    appendDebugLog(`Startup: urlSessionToken=${!!urlSessionToken} apiBase=${APP_VERSION !== 'dev' ? typeof __APP_VERSION__ !== 'undefined' ? 'set' : 'unset' : 'dev'}`);
+    appendDebugLog(`Startup: urlSessionToken=${!!urlSessionToken} appVersion=${APP_VERSION}`);
     let pendingId: string | null = null;
     try { pendingId = localStorage.getItem('smartthings_controls_pending_auth'); } catch { /* ignore */ }
     appendDebugLog(`Startup: pendingAuthId=${pendingId ?? 'none'}`);
@@ -1126,9 +1153,15 @@ export async function initApp(): Promise<void> {
     appendDebugLog(
       `Session status loaded. authenticated=${initialSessionStatus.authenticated} configured=${initialSessionStatus.configured} cached=${usedCachedSession}`
     );
+    // Log granted OAuth scopes — most direct signal for "scenes don't load"
+    // bug reports. r:scenes:* (read) is required for scenes.list().
+    const grantedScope = initialSessionStatus.session?.scope;
+    const requestedScopes = initialSessionStatus.scopes;
+    appendDebugLog(`OAuth scope granted=${grantedScope ?? 'n/a'} requested=${requestedScopes ?? 'n/a'}`);
   } catch (err) {
     console.warn('[SmartThingsControls] getSessionStatus error:', err);
     appendDebugLog(`Session status failed: ${getErrorMessage(err)}`);
+    void hub.updatePage(composeTextFallbackPage('SmartThings\n\nCould not reach server.\nOpen the companion on your phone.'));
     showPanel(AUTH_RETURN_ID);
     return;
   }
@@ -1139,6 +1172,7 @@ export async function initApp(): Promise<void> {
       : initialSessionStatus.configured
         ? AUTH_DISCONNECTED_MESSAGE
         : AUTH_CONFIG_MISSING_MESSAGE;
+    void hub.updatePage(composeTextFallbackPage('SmartThings\n\nNot connected.\nOpen the companion on\nyour phone to connect.'));
     showConnectPanelWithDebug(disconnectMessage, initialSessionStatus.configured);
     return;
   }
@@ -1229,24 +1263,30 @@ export async function initApp(): Promise<void> {
   let roomsLoadPromise: Promise<void> | null = null;
   let glassesLayoutMode: GlassesLayoutMode = 'none';
 
-  const startupPage = composeStartupPage(store.getState());
+  const menuPage = composeMenuRebuildPage(store.getState());
   appendDebugLog(
-    `Creating glasses startup page. view=${store.getState().listView} containers=${startupPage.containerTotalNum ?? 0}`
+    `Painting glasses menu. view=${store.getState().listView} containers=${menuPage.containerTotalNum ?? 0}`
   );
-  const startupResult = await hub.setupPage(startupPage);
+  const startupSuccess = await hub.updatePage(menuPage);
   appendDebugLog(
-    `Startup page result: ${describeStartUpPageResult(startupResult.code)}`
-      + (startupResult.success ? '' : ' (the glasses may remain blank until this succeeds)'),
-    !startupResult.success
+    `Menu paint result: ${startupSuccess ? 'success' : 'failed'}`
+      + (startupSuccess ? '' : ' (the glasses may remain on the loading screen until this succeeds)'),
+    !startupSuccess
   );
 
   (async () => {
+    appendDebugLog('Scenes load: starting');
     try {
       const scenes = await withSmartThingsClient((client) => client.scenes.list());
-      store.dispatch({ type: 'SCENES_LOADED', scenes: normalizeScenes(scenes) });
+      const normalized = normalizeScenes(scenes);
+      appendDebugLog(`Scenes load: success raw=${Array.isArray(scenes) ? scenes.length : 'n/a'} normalized=${normalized.length}`);
+      store.dispatch({ type: 'SCENES_LOADED', scenes: normalized });
     } catch (err) {
-      if (await handleTerminalAuthFailure(err)) return;
+      const status = (err as { status?: unknown; statusCode?: unknown })?.status
+        ?? (err as { status?: unknown; statusCode?: unknown })?.statusCode;
       const message = getErrorMessage(err);
+      appendDebugLog(`Scenes load: failed status=${status ?? 'n/a'} message=${message}`, true);
+      if (await handleTerminalAuthFailure(err)) return;
       store.dispatch({ type: 'SCENES_ERROR', message });
     }
   })();
@@ -1282,17 +1322,21 @@ export async function initApp(): Promise<void> {
   const recentListIndices: { index: number; time: number }[] = [];
 
   async function loadRooms(): Promise<void> {
+    appendDebugLog('Rooms load: starting');
     try {
       const locationId = await getLocationId();
       if (!locationId) {
+        appendDebugLog('Rooms load: aborted — no locationId returned', true);
         store.dispatch({ type: 'ROOMS_ERROR', message: 'No location found for rooms' });
         refreshPage();
         return;
       }
+      appendDebugLog(`Rooms load: locationId=${locationId.slice(0, 8)}…`);
       const [roomsRes, devicesRes] = await Promise.all([
         withSmartThingsClient((client) => client.rooms.list(locationId)),
         withSmartThingsClient((client) => client.devices.list({ locationId }).catch(() => [])),
       ]);
+      appendDebugLog(`Rooms load: success rooms=${roomsRes.length} devices=${devicesRes.length}`);
       store.dispatch({
         type: 'ROOMS_LOADED',
         rooms: [
@@ -1305,11 +1349,14 @@ export async function initApp(): Promise<void> {
       });
       store.dispatch({ type: 'ALL_DEVICES_LOADED', devices: normalizeDevices(devicesRes) });
     } catch (err) {
+      const status = (err as { status?: unknown; statusCode?: unknown })?.status
+        ?? (err as { status?: unknown; statusCode?: unknown })?.statusCode;
+      const message = getErrorMessage(err);
+      appendDebugLog(`Rooms load: failed status=${status ?? 'n/a'} message=${message}`, true);
       if (await handleTerminalAuthFailure(err)) {
         refreshPage();
         return;
       }
-      const message = getErrorMessage(err);
       store.dispatch({ type: 'ROOMS_ERROR', message });
     }
     refreshPage();
@@ -1318,10 +1365,21 @@ export async function initApp(): Promise<void> {
   async function getLocationId(): Promise<string | undefined> {
     try {
       const locations = await withSmartThingsClient((client) => client.locations.list());
+      appendDebugLog(`Locations load: success n=${locations.length}`);
       return locations[0]?.locationId;
-    } catch {
-      const scenes = await withSmartThingsClient((client) => client.scenes.list());
-      return scenes[0]?.locationId;
+    } catch (err) {
+      const status = (err as { status?: unknown; statusCode?: unknown })?.status
+        ?? (err as { status?: unknown; statusCode?: unknown })?.statusCode;
+      appendDebugLog(`Locations load: failed status=${status ?? 'n/a'} message=${getErrorMessage(err)} (falling back to scenes.list)`, true);
+      try {
+        const scenes = await withSmartThingsClient((client) => client.scenes.list());
+        return scenes[0]?.locationId;
+      } catch (err2) {
+        const status2 = (err2 as { status?: unknown; statusCode?: unknown })?.status
+          ?? (err2 as { status?: unknown; statusCode?: unknown })?.statusCode;
+        appendDebugLog(`Locations fallback (scenes.list): failed status=${status2 ?? 'n/a'} message=${getErrorMessage(err2)}`, true);
+        return undefined;
+      }
     }
   }
 
@@ -1425,11 +1483,11 @@ export async function initApp(): Promise<void> {
     void rebuildFullPage('state refresh');
   };
 
-  if (startupResult.success && useRealGlasses) {
+  if (startupSuccess && useRealGlasses) {
     glassesLayoutMode = 'text';
     appendDebugLog('Using fixed text glasses layout for real-device compatibility.');
     updateTextModePage('post-startup text layout');
-  } else if (startupResult.success) {
+  } else if (startupSuccess) {
     const rebuilt = await rebuildFullPage('post-startup full layout');
     if (!rebuilt) {
       authUI.setConnectionStatus('Connected, but the glasses UI failed to initialize. Open the runtime console on your phone.');
@@ -1732,7 +1790,10 @@ export async function initApp(): Promise<void> {
       clearTimeout(confirmationDismissTimeoutId);
       confirmationDismissTimeoutId = null;
     }
-    if (confirmationShowing === result) {
+    // Skip the blank-and-re-show flash for 'pending' (in-flight indicator —
+    // flickering it on itself looks broken). Other results still flash so
+    // back-to-back identical results read as distinct events.
+    if (confirmationShowing === result && result !== 'pending') {
       const blank = getBlankImageData(CONFIRMATION_WIDTH, CONFIRMATION_HEIGHT, useRawImages);
       await hub.updateBoardImage(
         new ImageRawDataUpdate({
@@ -1751,6 +1812,8 @@ export async function initApp(): Promise<void> {
       })
     );
     confirmationShowing = result;
+    // 'pending' is replaced when the in-flight command resolves; never auto-dismiss it.
+    if (result === 'pending') return;
     confirmationDismissTimeoutId = setTimeout(() => {
       confirmationDismissTimeoutId = null;
       confirmationShowing = null;
@@ -1764,6 +1827,21 @@ export async function initApp(): Promise<void> {
       );
     }, CONFIRM_DISMISS_MS);
   };
+
+  /** Show a "thinking" indicator on the glasses if the wrapped operation takes
+   *  longer than PENDING_FEEDBACK_DELAY_MS. Fast commands skip the indicator
+   *  entirely so they don't pay an extra image-update roundtrip on real glasses. */
+  const PENDING_FEEDBACK_DELAY_MS = 350;
+  async function withPendingFeedback<T>(op: () => Promise<T>): Promise<T> {
+    const timer = setTimeout(() => {
+      void showConfirmation('pending');
+    }, PENDING_FEEDBACK_DELAY_MS);
+    try {
+      return await op();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   /** True if command response has no FAILED result and device is not OFFLINE. */
   async function isDeviceCommandSuccess(
@@ -1789,7 +1867,7 @@ export async function initApp(): Promise<void> {
       appendDebugLog(
         `Device switch requested. deviceId=${deviceId} command=${on ? 'on' : 'off'} visibility=${typeof document !== 'undefined' ? document.visibilityState : 'unknown'}`
       );
-      const response = await executeDeviceCommandViaServer(deviceId, 'switch', on ? 'on' : 'off');
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'switch', on ? 'on' : 'off'));
       const success = await isDeviceCommandSuccess(deviceId, response);
       appendDebugLog(`Device switch result. deviceId=${deviceId} success=${success}`);
       await showConfirmation(success ? 'success' : 'failure');
@@ -1806,7 +1884,7 @@ export async function initApp(): Promise<void> {
       appendDebugLog(
         `Device level requested. deviceId=${deviceId} level=${level} visibility=${typeof document !== 'undefined' ? document.visibilityState : 'unknown'}`
       );
-      const response = await executeDeviceCommandViaServer(deviceId, 'switchLevel', 'setLevel', [level]);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'switchLevel', 'setLevel', [level]));
       const success = await isDeviceCommandSuccess(deviceId, response);
       appendDebugLog(`Device level result. deviceId=${deviceId} level=${level} success=${success}`);
       await showConfirmation(success ? 'success' : 'failure');
@@ -1832,7 +1910,7 @@ export async function initApp(): Promise<void> {
   async function runGarageDoor(deviceId: string, open: boolean, capability: 'garageDoorControl' | 'doorControl' = 'garageDoorControl'): Promise<void> {
     try {
       appendDebugLog(`Garage door requested. deviceId=${deviceId} capability=${capability} command=${open ? 'open' : 'close'}`);
-      const response = await executeDeviceCommandViaServer(deviceId, capability, open ? 'open' : 'close');
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, capability, open ? 'open' : 'close'));
       const success = await isDeviceCommandSuccess(deviceId, response);
       appendDebugLog(`Garage door result. deviceId=${deviceId} success=${success}`);
       await showConfirmation(success ? 'success' : 'failure');
@@ -1847,7 +1925,7 @@ export async function initApp(): Promise<void> {
   async function runLock(deviceId: string, lock: boolean): Promise<void> {
     try {
       appendDebugLog(`Lock requested. deviceId=${deviceId} command=${lock ? 'lock' : 'unlock'}`);
-      const response = await executeDeviceCommandViaServer(deviceId, 'lock', lock ? 'lock' : 'unlock');
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'lock', lock ? 'lock' : 'unlock'));
       const success = await isDeviceCommandSuccess(deviceId, response);
       appendDebugLog(`Lock result. deviceId=${deviceId} success=${success}`);
       await showConfirmation(success ? 'success' : 'failure');
@@ -1862,7 +1940,7 @@ export async function initApp(): Promise<void> {
   async function runMediaPlayback(deviceId: string, command: 'play' | 'pause' | 'stop'): Promise<void> {
     try {
       appendDebugLog(`Media playback requested. deviceId=${deviceId} command=${command}`);
-      const response = await executeDeviceCommandViaServer(deviceId, 'mediaPlayback', command);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'mediaPlayback', command));
       const success = await isDeviceCommandSuccess(deviceId, response);
       appendDebugLog(`Media playback result. deviceId=${deviceId} success=${success}`);
       await showConfirmation(success ? 'success' : 'failure');
@@ -1877,9 +1955,9 @@ export async function initApp(): Promise<void> {
   async function runAudioVolume(deviceId: string, direction: 'up' | 'down'): Promise<void> {
     try {
       appendDebugLog(`Audio volume requested. deviceId=${deviceId} command=volume${direction === 'up' ? 'Up' : 'Down'}`);
-      const response = await executeDeviceCommandViaServer(
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(
         deviceId, 'audioVolume', direction === 'up' ? 'volumeUp' : 'volumeDown'
-      );
+      ));
       const success = await isDeviceCommandSuccess(deviceId, response);
       appendDebugLog(`Audio volume result. deviceId=${deviceId} success=${success}`);
       await showConfirmation(success ? 'success' : 'failure');
@@ -1893,7 +1971,7 @@ export async function initApp(): Promise<void> {
 
   async function runAudioMute(deviceId: string, mute: boolean): Promise<void> {
     try {
-      const response = await executeDeviceCommandViaServer(deviceId, 'audioMute', mute ? 'mute' : 'unmute');
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'audioMute', mute ? 'mute' : 'unmute'));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
@@ -1905,9 +1983,9 @@ export async function initApp(): Promise<void> {
 
   async function runMediaTrackControl(deviceId: string, direction: 'next' | 'prev'): Promise<void> {
     try {
-      const response = await executeDeviceCommandViaServer(
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(
         deviceId, 'mediaTrackControl', direction === 'next' ? 'nextTrack' : 'previousTrack'
-      );
+      ));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
     } catch (err) {
@@ -1918,9 +1996,9 @@ export async function initApp(): Promise<void> {
 
   async function runTvChannel(deviceId: string, direction: 'up' | 'down'): Promise<void> {
     try {
-      const response = await executeDeviceCommandViaServer(
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(
         deviceId, 'tvChannel', direction === 'up' ? 'channelUp' : 'channelDown'
-      );
+      ));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
     } catch (err) {
@@ -1931,7 +2009,7 @@ export async function initApp(): Promise<void> {
 
   async function runWindowShade(deviceId: string, command: 'open' | 'close' | 'pause'): Promise<void> {
     try {
-      const response = await executeDeviceCommandViaServer(deviceId, 'windowShade', command);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'windowShade', command));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
@@ -1949,7 +2027,7 @@ export async function initApp(): Promise<void> {
       const current = status?.components?.main?.windowShadeLevel?.shadeLevel?.value;
       if (typeof current !== 'number') { await showConfirmation('failure'); return; }
       const next = Math.max(0, Math.min(100, Math.round(current + delta)));
-      const response = await executeDeviceCommandViaServer(deviceId, 'windowShadeLevel', 'setShadeLevel', [next]);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'windowShadeLevel', 'setShadeLevel', [next]));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
@@ -1961,7 +2039,7 @@ export async function initApp(): Promise<void> {
 
   async function runMediaInputSource(deviceId: string, source: string): Promise<void> {
     try {
-      const response = await executeDeviceCommandViaServer(deviceId, 'mediaInputSource', 'setInputSource', [source]);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'mediaInputSource', 'setInputSource', [source]));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
     } catch (err) {
@@ -1972,7 +2050,7 @@ export async function initApp(): Promise<void> {
 
   async function runThermostatFanMode(deviceId: string, mode: 'auto' | 'on' | 'circulate' | 'followschedule'): Promise<void> {
     try {
-      const response = await executeDeviceCommandViaServer(deviceId, 'thermostatFanMode', 'setThermostatFanMode', [mode]);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'thermostatFanMode', 'setThermostatFanMode', [mode]));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
@@ -1984,7 +2062,7 @@ export async function initApp(): Promise<void> {
 
   async function runValve(deviceId: string, open: boolean): Promise<void> {
     try {
-      const response = await executeDeviceCommandViaServer(deviceId, 'valve', open ? 'open' : 'close');
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'valve', open ? 'open' : 'close'));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
@@ -1996,7 +2074,7 @@ export async function initApp(): Promise<void> {
 
   async function runAlarm(deviceId: string, command: 'siren' | 'strobe' | 'both' | 'off'): Promise<void> {
     try {
-      const response = await executeDeviceCommandViaServer(deviceId, 'alarm', command);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'alarm', command));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
@@ -2008,7 +2086,7 @@ export async function initApp(): Promise<void> {
 
   async function runThermostatMode(deviceId: string, mode: 'heat' | 'cool' | 'auto' | 'off' | 'emergencyHeat'): Promise<void> {
     try {
-      const response = await executeDeviceCommandViaServer(deviceId, 'thermostatMode', mode);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'thermostatMode', mode));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
@@ -2034,7 +2112,7 @@ export async function initApp(): Promise<void> {
       const current = main?.[capId]?.[attrId]?.value;
       if (typeof current !== 'number') { await showConfirmation('failure'); return; }
       const next = Math.round(current + delta);
-      const response = await executeDeviceCommandViaServer(deviceId, capId, command, [next]);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, capId, command, [next]));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
@@ -2052,7 +2130,7 @@ export async function initApp(): Promise<void> {
       const current = status?.components?.main?.fanSpeed?.fanSpeed?.value;
       if (typeof current !== 'number') { await showConfirmation('failure'); return; }
       const next = Math.max(0, Math.round(current + delta));
-      const response = await executeDeviceCommandViaServer(deviceId, 'fanSpeed', 'setFanSpeed', [next]);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'fanSpeed', 'setFanSpeed', [next]));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
@@ -2071,7 +2149,7 @@ export async function initApp(): Promise<void> {
       if (typeof current !== 'number') { await showConfirmation('failure'); return; }
       const step = 200;
       const next = Math.max(1000, Math.min(30000, Math.round(current + (direction === 'warmer' ? -step : step))));
-      const response = await executeDeviceCommandViaServer(deviceId, 'colorTemperature', 'setColorTemperature', [next]);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'colorTemperature', 'setColorTemperature', [next]));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
       if (success) void loadDeviceStats(deviceId);
@@ -2083,7 +2161,7 @@ export async function initApp(): Promise<void> {
 
   async function runColorControl(deviceId: string, hue: number): Promise<void> {
     try {
-      const response = await executeDeviceCommandViaServer(deviceId, 'colorControl', 'setColor', [{ hue, saturation: 100 }]);
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'colorControl', 'setColor', [{ hue, saturation: 100 }]));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
     } catch (err) {
@@ -2094,7 +2172,7 @@ export async function initApp(): Promise<void> {
 
   async function runMomentary(deviceId: string): Promise<void> {
     try {
-      const response = await executeDeviceCommandViaServer(deviceId, 'momentary', 'push');
+      const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'momentary', 'push'));
       const success = await isDeviceCommandSuccess(deviceId, response);
       await showConfirmation(success ? 'success' : 'failure');
     } catch (err) {
@@ -2114,13 +2192,13 @@ export async function initApp(): Promise<void> {
     );
     let results: SmartThingsBatchRelayResult[] = [];
     try {
-      const response = await executeBatchDeviceCommandsViaServer(
+      const response = await withPendingFeedback(() => executeBatchDeviceCommandsViaServer(
         devices.map((device) => ({
           deviceId: device.deviceId,
           capability: 'switch',
           command: on ? 'on' : 'off',
         }))
-      );
+      ));
       results = response.results ?? [];
     } catch (err) {
       if (await handleTerminalAuthFailure(err)) return;
@@ -2141,14 +2219,14 @@ export async function initApp(): Promise<void> {
     );
     let results: SmartThingsBatchRelayResult[] = [];
     try {
-      const response = await executeBatchDeviceCommandsViaServer(
+      const response = await withPendingFeedback(() => executeBatchDeviceCommandsViaServer(
         devices.map((device) => ({
           deviceId: device.deviceId,
           capability: 'switchLevel',
           command: 'setLevel',
           arguments: [level],
         }))
-      );
+      ));
       results = response.results ?? [];
     } catch (err) {
       if (await handleTerminalAuthFailure(err)) return;
@@ -2340,6 +2418,14 @@ export async function initApp(): Promise<void> {
           refreshPage();
           if (view === 'rooms') void loadRooms();
         }
+      } else if (tapCount === 2) {
+        // ER guidance: from the top-level menu, double-tap should surface the
+        // native system exit confirmation dialog. shutDownPageContainer(1)
+        // shows the dialog; if the user cancels, the app stays running. We
+        // do NOT clean up resources here — that happens in the SYSTEM_EXIT
+        // event handler if the user actually confirms.
+        appendDebugLog('Main double-tap: requesting system exit dialog.');
+        void hub.requestSystemExit();
       }
       lastTapIndex = -1;
       tapCount = 0;
@@ -2367,13 +2453,18 @@ export async function initApp(): Promise<void> {
         listIndex === 0 ||
         listView === 'scenes' ||
         listView === 'devices' ||
+        listView === 'rooms' ||
         listView === 'favorites' ||
         listView === 'device-dim' ||
         listView === 'room-all-detail' ||
         listView === 'room-all-dim';
       if (tapCount === 2 && isFirst && canDoubleTapGoBack) {
         if (listView === 'devices') {
-          store.dispatch({ type: 'NAV_VIEW', view: 'rooms' });
+          // Devices can be reached two ways: top-level from main (no room
+          // selected → all-devices view) or via main → Rooms → [room]. Back
+          // navigation should mirror that path.
+          const cameFromRooms = !!state.selectedRoomId;
+          store.dispatch({ type: 'NAV_VIEW', view: cameFromRooms ? 'rooms' : 'main' });
         } else if (listView === 'room-all-detail') {
           store.dispatch({ type: 'NAV_VIEW', view: 'devices' });
         } else if (listView === 'room-all-dim') {
@@ -2772,6 +2863,30 @@ export async function initApp(): Promise<void> {
     return true;
   }
 
+  // Acceleration model — discrete firmware scroll events only, so we accelerate
+  // by stepping more items per swipe when the user swipes rapidly in the same
+  // direction. Burst grows on consecutive same-direction events within
+  // ACCEL_WINDOW_MS; resets on a direction change or a pause >ACCEL_WINDOW_MS.
+  const ACCEL_WINDOW_MS = 400;
+  const ACCEL_STEPS = [1, 1, 3, 8, 15] as const;
+  let accelBurstIndex = 0;
+  let accelLastDirection: -1 | 0 | 1 = 0;
+  let accelLastAt = 0;
+
+  function getAcceleratedStep(direction: -1 | 1): number {
+    const now = Date.now();
+    const sameDirection = accelLastDirection === direction;
+    const withinWindow = now - accelLastAt <= ACCEL_WINDOW_MS;
+    if (sameDirection && withinWindow) {
+      accelBurstIndex = Math.min(accelBurstIndex + 1, ACCEL_STEPS.length - 1);
+    } else {
+      accelBurstIndex = 0;
+    }
+    accelLastDirection = direction;
+    accelLastAt = now;
+    return ACCEL_STEPS[accelBurstIndex] ?? 1;
+  }
+
   function handleTextModeEvent(event: EvenHubEvent): boolean {
     const rawType =
       event.listEvent?.eventType ??
@@ -2782,12 +2897,14 @@ export async function initApp(): Promise<void> {
 
     if (eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
       if (!shouldProcessTextModeScroll(-1)) return true;
-      moveTextModeFocus(-1);
+      const step = getAcceleratedStep(-1);
+      moveTextModeFocus(-step);
       return true;
     }
     if (eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
       if (!shouldProcessTextModeScroll(1)) return true;
-      moveTextModeFocus(1);
+      const step = getAcceleratedStep(1);
+      moveTextModeFocus(step);
       return true;
     }
     if (eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {

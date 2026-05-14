@@ -35,6 +35,28 @@ const LINK_SLOW_THRESHOLD_MS = 800;
 /** Rolling window size for link-health averaging. */
 const LINK_SLOW_SAMPLE_SIZE = 3;
 
+// Per-op BLE timeouts. A single flaky hop can hang ~30s on the glasses link;
+// cap each call so failures surface fast and the app stays responsive.
+const BLE_TIMEOUT_DEVICE_INFO_MS = 4000;
+const BLE_TIMEOUT_LOCAL_STORAGE_MS = 5000;
+const BLE_TIMEOUT_PAGE_SETUP_MS = 8000;
+const BLE_TIMEOUT_PAGE_REBUILD_MS = 8000;
+const BLE_TIMEOUT_TEXT_UPGRADE_MS = 5000;
+const BLE_TIMEOUT_IMAGE_UPDATE_MS = 12000;
+const BLE_TIMEOUT_SHUTDOWN_MS = 3000;
+
+function withBleTimeout<T>(p: Promise<T>, ms: number, opName: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`[EvenHubBridge] ${opName} timed out after ${ms}ms`));
+    }, ms);
+    p.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
+  });
+}
+
 // ── Internal types ────────────────────────────────────────────────────────────
 
 interface TextQueueEntry {
@@ -151,8 +173,9 @@ export class EvenHubBridge {
   async getDeviceInfo(): Promise<DeviceInfo | null> {
     if (!this.bridge) return null;
     try {
-      return await this.bridge.getDeviceInfo();
-    } catch {
+      return await withBleTimeout(this.bridge.getDeviceInfo(), BLE_TIMEOUT_DEVICE_INFO_MS, 'getDeviceInfo');
+    } catch (err) {
+      console.warn('[EvenHubBridge] getDeviceInfo error:', err);
       return null;
     }
   }
@@ -167,7 +190,11 @@ export class EvenHubBridge {
   async getLocalStorage(key: string): Promise<string> {
     if (!this.bridge) return '';
     try {
-      return await this.bridge.getLocalStorage(key);
+      return await withBleTimeout(
+        this.bridge.getLocalStorage(key),
+        BLE_TIMEOUT_LOCAL_STORAGE_MS,
+        `getLocalStorage(${key})`,
+      );
     } catch (err) {
       console.warn('[EvenHubBridge] getLocalStorage error:', err);
       return '';
@@ -177,7 +204,11 @@ export class EvenHubBridge {
   async setLocalStorage(key: string, value: string): Promise<boolean> {
     if (!this.bridge) return false;
     try {
-      return await this.bridge.setLocalStorage(key, value);
+      return await withBleTimeout(
+        this.bridge.setLocalStorage(key, value),
+        BLE_TIMEOUT_LOCAL_STORAGE_MS,
+        `setLocalStorage(${key})`,
+      );
     } catch (err) {
       console.error('[EvenHubBridge] setLocalStorage error:', err);
       return false;
@@ -193,7 +224,13 @@ export class EvenHubBridge {
     }
 
     try {
-      const result = StartUpPageCreateResult.normalize(await this.bridge.createStartUpPageContainer(container));
+      const result = StartUpPageCreateResult.normalize(
+        await withBleTimeout(
+          this.bridge.createStartUpPageContainer(container),
+          BLE_TIMEOUT_PAGE_SETUP_MS,
+          'createStartUpPageContainer',
+        ),
+      );
       const success = result === StartUpPageCreateResult.success;
       if (!success) {
         console.error('[EvenHubBridge] createStartUpPageContainer failed:', result);
@@ -212,7 +249,11 @@ export class EvenHubBridge {
     }
 
     try {
-      const success = await this.bridge.rebuildPageContainer(container);
+      const success = await withBleTimeout(
+        this.bridge.rebuildPageContainer(container),
+        BLE_TIMEOUT_PAGE_REBUILD_MS,
+        'rebuildPageContainer',
+      );
       if (!success) {
         console.warn('[EvenHubBridge] rebuildPageContainer returned false.');
       }
@@ -278,12 +319,16 @@ export class EvenHubBridge {
       if (this.lastSentTextByKey.get(key) === entry.content) continue;
 
       try {
-        await this.bridge.textContainerUpgrade(
-          new TextContainerUpgrade({
-            containerID: entry.containerID,
-            containerName: entry.containerName,
-            content: entry.content,
-          }),
+        await withBleTimeout(
+          this.bridge.textContainerUpgrade(
+            new TextContainerUpgrade({
+              containerID: entry.containerID,
+              containerName: entry.containerName,
+              content: entry.content,
+            }),
+          ),
+          BLE_TIMEOUT_TEXT_UPGRADE_MS,
+          `textContainerUpgrade(${entry.containerName})`,
         );
         this.lastSentTextByKey.set(key, entry.content);
       } catch (err) {
@@ -329,7 +374,11 @@ export class EvenHubBridge {
 
       const startMs = Date.now();
       try {
-        const result = await this.bridge.updateImageRawData(data);
+        const result = await withBleTimeout(
+          this.bridge.updateImageRawData(data),
+          BLE_TIMEOUT_IMAGE_UPDATE_MS,
+          `updateImageRawData(${data.containerName ?? data.containerID ?? '?'})`,
+        );
         if (!ImageRawDataUpdateResult.isSuccess(result)) {
           console.warn('[EvenHubBridge] Image update not successful:', result);
         } else {
@@ -428,6 +477,25 @@ export class EvenHubBridge {
     }
   }
 
+  // ── System exit dialog ────────────────────────────────────────────────────
+
+  /** Show ER's native system-exit confirmation dialog. The user can cancel,
+   *  in which case the app stays running and our event subscriptions remain
+   *  active. Per ER guidance, do NOT clean up resources here — wait for the
+   *  SYSTEM_EXIT_EVENT (7) handler if the user confirms. */
+  async requestSystemExit(): Promise<void> {
+    if (!this.bridge) return;
+    try {
+      await withBleTimeout(
+        this.bridge.shutDownPageContainer(1),
+        BLE_TIMEOUT_SHUTDOWN_MS,
+        'shutDownPageContainer(exit-dialog)',
+      );
+    } catch (err) {
+      console.error('[EvenHubBridge] requestSystemExit error:', err);
+    }
+  }
+
   // ── Shutdown ──────────────────────────────────────────────────────────────
 
   async shutdown(): Promise<void> {
@@ -444,7 +512,11 @@ export class EvenHubBridge {
 
     if (this.bridge) {
       try {
-        await this.bridge.shutDownPageContainer(0);
+        await withBleTimeout(
+          this.bridge.shutDownPageContainer(0),
+          BLE_TIMEOUT_SHUTDOWN_MS,
+          'shutDownPageContainer',
+        );
       } catch (err) {
         console.error('[EvenHubBridge] shutDown error:', err);
       }

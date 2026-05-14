@@ -1,6 +1,6 @@
 {
   "name": "smartthings-controls",
-  "version": "1.1.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -11,10 +11,12 @@
     "dev:client": "vite",
     "dev:server": "node --watch server/index.js",
     "server": "node server/index.js",
+    "prebuild": "node scripts/sync-app-version.mjs",
     "build": "tsc -b && vite build",
-    "pack": "npm run build && npx @evenrealities/evenhub-cli@0.1.11 pack app.json dist/ && mv out.ehpk smartthings-controls.ehpk",
+    "pack": "npm run build && npx @evenrealities/evenhub-cli@0.1.13 pack app.json dist/ && mv out.ehpk smartthings-controls.ehpk",
     "preview": "vite preview",
-    "lint": "eslint src/ server/ api/"
+    "lint": "eslint src/ server/ api/",
+    "version": "node scripts/sync-app-version.mjs && git add app.json"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.10",
@@ -22,28 +24,29 @@
     "buffer": "^6.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "even-toolkit": "^1.1.2",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "redis": "^5.11.0",
-    "tailwind-merge": "^3.5.0",
+    "even-toolkit": "^1.7.2",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router": "^7.15.1",
+    "redis": "^5.12.1",
+    "tailwind-merge": "^3.6.0",
     "util": "^0.12.5"
   },
   "devDependencies": {
-    "@evenrealities/evenhub-simulator": "^0.6.2",
-    "@tailwindcss/vite": "^4.2.2",
-    "@types/node": "^24.3.0",
+    "@evenrealities/evenhub-simulator": "^0.7.3",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^24.12.4",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@typescript-eslint/eslint-plugin": "^8.42.0",
-    "@typescript-eslint/parser": "^8.42.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.3",
+    "@typescript-eslint/parser": "^8.59.3",
     "@vitejs/plugin-react": "^5.2.0",
     "concurrently": "^9.2.1",
     "eslint": "^9.34.0",
-    "tailwindcss": "^4.2.2",
+    "tailwindcss": "^4.3.0",
     "typescript": "^5.9.2",
-    "typescript-eslint": "^8.42.0",
+    "typescript-eslint": "^8.59.3",
     "vite": "^7.1.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.6"
   }
 }
