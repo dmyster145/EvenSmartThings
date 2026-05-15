@@ -963,11 +963,32 @@ export async function initApp(): Promise<void> {
   hub.subscribeEvents(eventForwarder);
   appendDebugLog('Early event forwarder armed.');
 
-  // No "Starting…" loading page anymore — we let the FIRST hub.updatePage()
-  // call below auto-dispatch to createStartUpPageContainer (via the
-  // startupRendered flag inside EvenHubBridge). That collapses two BLE
-  // roundtrips (loading + menu) into one, which mirrors the working
-  // reference project pattern.
+  // Instant first paint — required by Even Realities review guidance:
+  // "App needs instant OS rendering on launch for normal display." We can't
+  // wait for storage reads + network session verify before showing
+  // something on the glasses, so we predict the right initial page from
+  // synchronously-readable signals and paint immediately. We're optimistic:
+  // any credential at all (URL token from OAuth callback, stored bearer
+  // token, or a cached authenticated session) means the user is "probably
+  // authenticated" — paint the menu. The fresh session verify below repaints
+  // to the fallback if that turns out to be wrong.
+  let startupSuccess = false;
+  let instantPainted: 'menu' | 'fallback' = 'fallback';
+  {
+    const cachedSession = readCachedSessionStatus();
+    const hasAnyCredential =
+      !!urlSessionToken ||
+      !!readStoredSessionToken() ||
+      !!cachedSession?.authenticated;
+    instantPainted = hasAnyCredential ? 'menu' : 'fallback';
+    const initialPage =
+      instantPainted === 'menu'
+        ? composeMenuRebuildPage(buildInitialState())
+        : composeTextFallbackPage('SmartThings Controls\n\nOpen the companion on your\nphone to connect.');
+    appendDebugLog(`Instant first paint: ${instantPainted} (urlToken=${!!urlSessionToken} storedToken=${!!readStoredSessionToken()} cachedAuth=${!!cachedSession?.authenticated})`);
+    startupSuccess = await hub.updatePage(initialPage);
+    appendDebugLog(`Instant first paint result: ${startupSuccess ? 'success' : 'failed'}`, !startupSuccess);
+  }
 
   // The Even bridge's setLocalStorage/getLocalStorage is backed by native app storage
   // that survives WebView restarts on iOS. The WebView's own localStorage is cleared
@@ -1190,6 +1211,20 @@ export async function initApp(): Promise<void> {
   appendDebugLog('SmartThings session is active.');
   void requestWakeLock('startup');
 
+  // If the instant first paint chose the "Connect on phone" fallback (no
+  // credential at launch time) but auth turned out to succeed (typically on
+  // OAuth-callback re-launch), the page on the glasses still has the
+  // fallback layout (BOOT_EVENT + BOOT_TEXT). Subsequent textContainerUpgrade
+  // calls target BOOT_LIST / STATS — those don't exist on the fallback page,
+  // so the menu would never appear. Rebuild to the menu layout once.
+  if (instantPainted === 'fallback') {
+    appendDebugLog('Auth succeeded after fallback paint — rebuilding to menu layout.');
+    const ok = await hub.updatePage(composeMenuRebuildPage(buildInitialState()));
+    appendDebugLog(`Menu rebuild after fallback: ${ok ? 'success' : 'failed'}`, !ok);
+    startupSuccess = startupSuccess && ok;
+    instantPainted = 'menu';
+  }
+
   if (usedCachedSession) {
     void getSessionStatus().then(fresh => {
       appendDebugLog(`Background session verify: authenticated=${fresh.authenticated}`);
@@ -1272,16 +1307,10 @@ export async function initApp(): Promise<void> {
   let roomsLoadPromise: Promise<void> | null = null;
   let glassesLayoutMode: GlassesLayoutMode = 'none';
 
-  const menuPage = composeMenuRebuildPage(store.getState());
-  appendDebugLog(
-    `Painting glasses menu. view=${store.getState().listView} containers=${menuPage.containerTotalNum ?? 0}`
-  );
-  const startupSuccess = await hub.updatePage(menuPage);
-  appendDebugLog(
-    `Menu paint result: ${startupSuccess ? 'success' : 'failed'}`
-      + (startupSuccess ? '' : ' (the glasses may remain on the loading screen until this succeeds)'),
-    !startupSuccess
-  );
+  // Note: menu was already painted instantly right after hub.init() above
+  // (via the cached-session optimistic path). startupSuccess from that
+  // paint is what the post-startup branches below check. No second BLE
+  // paint here — once data loads, refreshPage() drives in-place updates.
 
   (async () => {
     appendDebugLog('Scenes load: starting');
@@ -1329,6 +1358,11 @@ export async function initApp(): Promise<void> {
   let tapCount = 0;
   let commitTimeoutId: ReturnType<typeof setTimeout> | null = null;
   const recentListIndices: { index: number; time: number }[] = [];
+  // Set as soon as any glasses event is processed. applyInitialLaunchPreference
+  // checks this and skips overriding the user's navigation if they've already
+  // interacted — prevents the "tap → menu opens → snaps back to main" bounce
+  // when the launch-preference apply Promise resolves after a buffered tap.
+  let userHasInteracted = false;
 
   async function loadRooms(): Promise<void> {
     appendDebugLog('Rooms load: starting');
@@ -2941,6 +2975,13 @@ export async function initApp(): Promise<void> {
     const storedLaunchResume = await storedLaunchResumePromise;
     try {
       await preferencesLoadPromise;
+      // If the user has already navigated (a buffered tap fired after init,
+      // or they tapped during the storage/preferences await), respect their
+      // intent — don't reset to the configured default view.
+      if (userHasInteracted) {
+        appendDebugLog('Launch preference: skipping (user already interacted).');
+        return;
+      }
       if (store.getState().preferences.glassesMenuDefault === 'resume') {
         const restored = await restoreLaunchResume(storedLaunchResume);
         if (!restored) openConfiguredGlassesMenuView();
@@ -2960,6 +3001,10 @@ export async function initApp(): Promise<void> {
   });
 
   function handleHubEvent(event: EvenHubEvent): void {
+    // Any glasses event = the user has interacted. Cancel the pending
+    // launch-preference override so we don't snap them back to the default
+    // view after they've already navigated.
+    userHasInteracted = true;
     if (canUseTextGlassesLayout()) {
       handleTextModeEvent(event);
       return;
