@@ -739,12 +739,12 @@ async function runExecuteScene(
     `[SmartThingsControls] Scene command requested. sceneId=${scene.sceneId} visibility=${typeof document !== 'undefined' ? document.visibilityState : 'unknown'}`
   );
   store.dispatch({ type: 'EXECUTE_START' });
-  // Show a "thinking" indicator if the relay takes longer than 350ms.
-  // Cleared as soon as the relay completes (success or error) so fast commands
-  // skip the extra image update entirely.
-  const pendingTimer = setTimeout(() => { void showConfirmation('pending'); }, 350);
+  // Show the "…" in-flight indicator immediately, in parallel with the relay.
+  // showConfirmation() keeps it visible for MIN_PENDING_VISIBLE_MS before the
+  // success/failure result replaces it, so the wearer always sees feedback.
+  void showConfirmation('pending');
   try {
-    const result = await executeSceneViaServer(scene.sceneId).finally(() => clearTimeout(pendingTimer));
+    const result = await executeSceneViaServer(scene.sceneId);
     const status = result?.status;
     const success = status === 'success';
 
@@ -964,29 +964,27 @@ export async function initApp(): Promise<void> {
   appendDebugLog('Early event forwarder armed.');
 
   // Instant first paint — required by Even Realities review guidance:
-  // "App needs instant OS rendering on launch for normal display." We can't
-  // wait for storage reads + network session verify before showing
-  // something on the glasses, so we predict the right initial page from
-  // synchronously-readable signals and paint immediately. We're optimistic:
-  // any credential at all (URL token from OAuth callback, stored bearer
-  // token, or a cached authenticated session) means the user is "probably
-  // authenticated" — paint the menu. The fresh session verify below repaints
-  // to the fallback if that turns out to be wrong.
+  // "App needs instant OS rendering on launch for normal display."
+  //
+  // We can't synchronously tell whether the user is authenticated: the real
+  // bearer token lives in Even *bridge* persistent storage and is only
+  // restored asynchronously (a BLE read) after this point. WebView
+  // localStorage is wiped between app launches on the device, so
+  // readStoredSessionToken() is empty on cold start even for long-time
+  // authenticated users — which made them see the "connect on phone"
+  // message every launch.
+  //
+  // So: paint the MENU optimistically. The vast majority of launches are
+  // returning, authenticated users. If the async session verify below comes
+  // back unauthenticated, the existing not-authenticated handler repaints
+  // the fallback. Worst case for a genuinely-unauthenticated user is a brief
+  // menu flash before the "connect on phone" message — far better than every
+  // authenticated user seeing the pre-OAuth message on every launch.
   let startupSuccess = false;
-  let instantPainted: 'menu' | 'fallback' = 'fallback';
   {
     const cachedSession = readCachedSessionStatus();
-    const hasAnyCredential =
-      !!urlSessionToken ||
-      !!readStoredSessionToken() ||
-      !!cachedSession?.authenticated;
-    instantPainted = hasAnyCredential ? 'menu' : 'fallback';
-    const initialPage =
-      instantPainted === 'menu'
-        ? composeMenuRebuildPage(buildInitialState())
-        : composeTextFallbackPage('SmartThings Controls\n\nOpen the companion on your\nphone to connect.');
-    appendDebugLog(`Instant first paint: ${instantPainted} (urlToken=${!!urlSessionToken} storedToken=${!!readStoredSessionToken()} cachedAuth=${!!cachedSession?.authenticated})`);
-    startupSuccess = await hub.updatePage(initialPage);
+    appendDebugLog(`Instant first paint: menu (optimistic) (urlToken=${!!urlSessionToken} storedToken=${!!readStoredSessionToken()} cachedAuth=${!!cachedSession?.authenticated})`);
+    startupSuccess = await hub.updatePage(composeMenuRebuildPage(buildInitialState()));
     appendDebugLog(`Instant first paint result: ${startupSuccess ? 'success' : 'failed'}`, !startupSuccess);
   }
 
@@ -1211,20 +1209,6 @@ export async function initApp(): Promise<void> {
   appendDebugLog('SmartThings session is active.');
   void requestWakeLock('startup');
 
-  // If the instant first paint chose the "Connect on phone" fallback (no
-  // credential at launch time) but auth turned out to succeed (typically on
-  // OAuth-callback re-launch), the page on the glasses still has the
-  // fallback layout (BOOT_EVENT + BOOT_TEXT). Subsequent textContainerUpgrade
-  // calls target BOOT_LIST / STATS — those don't exist on the fallback page,
-  // so the menu would never appear. Rebuild to the menu layout once.
-  if (instantPainted === 'fallback') {
-    appendDebugLog('Auth succeeded after fallback paint — rebuilding to menu layout.');
-    const ok = await hub.updatePage(composeMenuRebuildPage(buildInitialState()));
-    appendDebugLog(`Menu rebuild after fallback: ${ok ? 'success' : 'failed'}`, !ok);
-    startupSuccess = startupSuccess && ok;
-    instantPainted = 'menu';
-  }
-
   if (usedCachedSession) {
     void getSessionStatus().then(fresh => {
       appendDebugLog(`Background session verify: authenticated=${fresh.authenticated}`);
@@ -1306,6 +1290,11 @@ export async function initApp(): Promise<void> {
   let useRealGlasses = false;
   let roomsLoadPromise: Promise<void> | null = null;
   let glassesLayoutMode: GlassesLayoutMode = 'none';
+  // Declared here (not next to getLocationId) so it's initialized before the
+  // scenes/rooms loaders below call getLocationId(). getLocationId is a
+  // hoisted function, but it closes over this `let` — referencing it before
+  // this line executes would hit the temporal dead zone.
+  let locationIdPromise: Promise<string | undefined> | null = null;
 
   // Note: menu was already painted instantly right after hub.init() above
   // (via the cached-session optimistic path). startupSuccess from that
@@ -1315,7 +1304,15 @@ export async function initApp(): Promise<void> {
   (async () => {
     appendDebugLog('Scenes load: starting');
     try {
-      const scenes = await withSmartThingsClient((client) => client.scenes.list());
+      // Scope to locationId (same as rooms/devices). The unscoped
+      // client.scenes.list() hits the all-locations scenes endpoint, which
+      // fails with a network-layer error for some accounts (confirmed in a
+      // user log: rooms/devices succeed, unscoped scenes → "Network Error").
+      const locationId = await getLocationId();
+      appendDebugLog(`Scenes load: locationId=${locationId ? locationId.slice(0, 8) + '…' : 'none (unscoped fallback)'}`);
+      const scenes = await withSmartThingsClient((client) =>
+        locationId ? client.scenes.list({ locationId: [locationId] }) : client.scenes.list()
+      );
       const normalized = normalizeScenes(scenes);
       appendDebugLog(`Scenes load: success raw=${Array.isArray(scenes) ? scenes.length : 'n/a'} normalized=${normalized.length}`);
       store.dispatch({ type: 'SCENES_LOADED', scenes: normalized });
@@ -1405,25 +1402,35 @@ export async function initApp(): Promise<void> {
     refreshPage();
   }
 
-  async function getLocationId(): Promise<string | undefined> {
-    try {
-      const locations = await withSmartThingsClient((client) => client.locations.list());
-      appendDebugLog(`Locations load: success n=${locations.length}`);
-      return locations[0]?.locationId;
-    } catch (err) {
-      const status = (err as { status?: unknown; statusCode?: unknown })?.status
-        ?? (err as { status?: unknown; statusCode?: unknown })?.statusCode;
-      appendDebugLog(`Locations load: failed status=${status ?? 'n/a'} message=${getErrorMessage(err)} (falling back to scenes.list)`, true);
-      try {
-        const scenes = await withSmartThingsClient((client) => client.scenes.list());
-        return scenes[0]?.locationId;
-      } catch (err2) {
-        const status2 = (err2 as { status?: unknown; statusCode?: unknown })?.status
-          ?? (err2 as { status?: unknown; statusCode?: unknown })?.statusCode;
-        appendDebugLog(`Locations fallback (scenes.list): failed status=${status2 ?? 'n/a'} message=${getErrorMessage(err2)}`, true);
-        return undefined;
-      }
+  // Memoize the locationId lookup — scenes, rooms, and global-stats loaders
+  // all need it and previously each triggered its own locations.list() call.
+  // (locationIdPromise is declared near the top of initApp to avoid a TDZ
+  // when the early scenes/rooms loaders call this hoisted function.)
+  function getLocationId(): Promise<string | undefined> {
+    if (!locationIdPromise) {
+      locationIdPromise = (async () => {
+        try {
+          const locations = await withSmartThingsClient((client) => client.locations.list());
+          appendDebugLog(`Locations load: success n=${locations.length}`);
+          return locations[0]?.locationId;
+        } catch (err) {
+          const status = (err as { status?: unknown; statusCode?: unknown })?.status
+            ?? (err as { status?: unknown; statusCode?: unknown })?.statusCode;
+          appendDebugLog(`Locations load: failed status=${status ?? 'n/a'} message=${getErrorMessage(err)} (falling back to scenes.list)`, true);
+          try {
+            const scenes = await withSmartThingsClient((client) => client.scenes.list());
+            return scenes[0]?.locationId;
+          } catch (err2) {
+            const status2 = (err2 as { status?: unknown; statusCode?: unknown })?.status
+              ?? (err2 as { status?: unknown; statusCode?: unknown })?.statusCode;
+            appendDebugLog(`Locations fallback (scenes.list): failed status=${status2 ?? 'n/a'} message=${getErrorMessage(err2)}`, true);
+            locationIdPromise = null; // allow a later retry
+            return undefined;
+          }
+        }
+      })();
     }
+    return locationIdPromise;
   }
 
   function canUseRichGlassesLayout(): boolean {
@@ -1822,8 +1829,15 @@ export async function initApp(): Promise<void> {
   const CONFIRM_DISMISS_MS = 5000;
   const CONFIRM_FLASH_MS = 150;
   const TEXT_MODE_SCROLL_COOLDOWN_MS = 90;
+  // Minimum time the "…" pending indicator must stay on screen before a
+  // success/failure result is allowed to replace it. Without this, a fast
+  // command renders the result almost immediately and the pending dots
+  // either never show or flash by unseen — the user just sees the checkmark
+  // appear "after a moment" with no in-flight feedback.
+  const MIN_PENDING_VISIBLE_MS = 600;
   let confirmationDismissTimeoutId: ReturnType<typeof setTimeout> | null = null;
   let confirmationShowing: ConfirmationResult | null = null;
+  let pendingShownAt = 0;
   let lastTextModeScrollAt = 0;
   let lastTextModeScrollDirection: -1 | 0 | 1 = 0;
 
@@ -1832,6 +1846,17 @@ export async function initApp(): Promise<void> {
     if (confirmationDismissTimeoutId !== null) {
       clearTimeout(confirmationDismissTimeoutId);
       confirmationDismissTimeoutId = null;
+    }
+    if (result === 'pending') {
+      pendingShownAt = Date.now();
+    } else if (confirmationShowing === 'pending' && pendingShownAt > 0) {
+      // Replacing the in-flight indicator with a result — make sure the
+      // wearer actually saw the "…" for a readable minimum first.
+      const elapsed = Date.now() - pendingShownAt;
+      if (elapsed < MIN_PENDING_VISIBLE_MS) {
+        await new Promise((r) => setTimeout(r, MIN_PENDING_VISIBLE_MS - elapsed));
+      }
+      pendingShownAt = 0;
     }
     // Skip the blank-and-re-show flash for 'pending' (in-flight indicator —
     // flickering it on itself looks broken). Other results still flash so
@@ -1871,19 +1896,14 @@ export async function initApp(): Promise<void> {
     }, CONFIRM_DISMISS_MS);
   };
 
-  /** Show a "thinking" indicator on the glasses if the wrapped operation takes
-   *  longer than PENDING_FEEDBACK_DELAY_MS. Fast commands skip the indicator
-   *  entirely so they don't pay an extra image-update roundtrip on real glasses. */
-  const PENDING_FEEDBACK_DELAY_MS = 350;
+  /** Show the "…" in-flight indicator immediately, then run the command. The
+   *  indicator renders in parallel with the network relay; showConfirmation()
+   *  guarantees it stays visible for MIN_PENDING_VISIBLE_MS before the
+   *  success/failure result replaces it, so the wearer always gets in-flight
+   *  feedback regardless of how fast the relay returns. */
   async function withPendingFeedback<T>(op: () => Promise<T>): Promise<T> {
-    const timer = setTimeout(() => {
-      void showConfirmation('pending');
-    }, PENDING_FEEDBACK_DELAY_MS);
-    try {
-      return await op();
-    } finally {
-      clearTimeout(timer);
-    }
+    void showConfirmation('pending');
+    return op();
   }
 
   /** True if command response has no FAILED result and device is not OFFLINE. */
