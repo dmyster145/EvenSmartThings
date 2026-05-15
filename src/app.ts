@@ -20,7 +20,6 @@ import type { AppState, SceneEntry, DeviceEntry, GlassesMenuDefault, ListOrderPr
 import { mapEvenHubEvent } from './input/actions';
 import {
   composeStartupPage,
-  composeLoadingStartupPage,
   composeMenuRebuildPage,
   composePageForState,
   composeListOnlyPage,
@@ -947,18 +946,28 @@ export async function initApp(): Promise<void> {
     return;
   }
 
-  // Paint a minimal "Starting…" page on the glasses immediately, so the
-  // wearer sees something within the first BLE roundtrip rather than after
-  // session/network work. The full menu replaces this via updatePage() below.
-  // This is the ONLY createStartUpPageContainer call on the launch path; every
-  // subsequent paint uses rebuildPageContainer / textContainerUpgrade per the
-  // EvenHub SDK guidance.
-  try {
-    const loadingResult = await hub.setupPage(composeLoadingStartupPage('Starting SmartThings…'));
-    appendDebugLog(`Loading page result: ${describeStartUpPageResult(loadingResult.code)}`);
-  } catch (err) {
-    appendDebugLog(`Loading page error: ${getErrorMessage(err)}`);
-  }
+  // Subscribe to glasses events IMMEDIATELY after the bridge is up, before any
+  // network/storage/page work. Events that arrive before handleHubEvent (and
+  // its many closure dependencies) are defined later in initApp would
+  // otherwise be silently dropped. The forwarder buffers them until
+  // attachHubEventSubscription('startup') flips the active handler and drains.
+  const earlyEventBuffer: EvenHubEvent[] = [];
+  let activeEventHandler: ((event: EvenHubEvent) => void) | null = null;
+  const eventForwarder = (event: EvenHubEvent): void => {
+    if (activeEventHandler) {
+      activeEventHandler(event);
+    } else {
+      earlyEventBuffer.push(event);
+    }
+  };
+  hub.subscribeEvents(eventForwarder);
+  appendDebugLog('Early event forwarder armed.');
+
+  // No "Starting…" loading page anymore — we let the FIRST hub.updatePage()
+  // call below auto-dispatch to createStartUpPageContainer (via the
+  // startupRendered flag inside EvenHubBridge). That collapses two BLE
+  // roundtrips (loading + menu) into one, which mirrors the working
+  // reference project pattern.
 
   // The Even bridge's setLocalStorage/getLocalStorage is backed by native app storage
   // that survives WebView restarts on iOS. The WebView's own localStorage is cleared
@@ -2992,11 +3001,21 @@ export async function initApp(): Promise<void> {
   }
 
   function attachHubEventSubscription(reason: string): void {
-    hub.subscribeEvents(handleHubEvent);
     if (reason === 'startup') {
-      appendDebugLog('EvenHub event subscription ready.');
+      // Forwarder was already subscribed right after hub.init(). Just flip
+      // the active handler to the real one and drain anything buffered
+      // during init/network/storage/setup work.
+      activeEventHandler = handleHubEvent;
+      const drained = earlyEventBuffer.length;
+      for (const event of earlyEventBuffer) handleHubEvent(event);
+      earlyEventBuffer.length = 0;
+      appendDebugLog(`EvenHub event subscription ready (drained=${drained}).`);
       return;
     }
+    // Resume: bridge instance was replaced inside hub.init(); the previous
+    // unsubscribe is stale. Re-subscribe the forwarder; activeEventHandler
+    // is already set so events route directly to handleHubEvent.
+    hub.subscribeEvents(eventForwarder);
     appendDebugLog(`EvenHub event subscription refreshed (${reason}).`);
   }
 

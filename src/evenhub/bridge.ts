@@ -6,6 +6,7 @@ import {
   waitForEvenAppBridge,
   StartUpPageCreateResult,
   TextContainerUpgrade,
+  CreateStartUpPageContainer as CreateStartUpPageContainerImpl,
   type EvenAppBridge as EvenAppBridgeType,
   type CreateStartUpPageContainer,
   type RebuildPageContainer,
@@ -111,6 +112,14 @@ export class EvenHubBridge {
   private launchSource: LaunchSource | null = null;
   private launchSourceHandlers = new Set<LaunchSourceHandler>();
 
+  // ── Page lifecycle state ──────────────────────────────────────────────────
+  /** True after createStartUpPageContainer has succeeded for the current
+   *  bridge instance. updatePage() consults this so the FIRST paint becomes
+   *  the startup call (single BLE roundtrip), and subsequent paints become
+   *  rebuildPageContainer. Reset to false on init() because the new bridge
+   *  instance has no startup page. */
+  private startupRendered = false;
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   /** @param timeoutMs If the bridge is not ready after this many ms, treat as no bridge (e.g. in a normal browser). Use a longer default so the Even App WebView has time to inject the bridge. */
@@ -118,6 +127,9 @@ export class EvenHubBridge {
     try {
       this.unsubscribeLaunchSource?.();
       this.unsubscribeLaunchSource = null;
+      // Reset page-lifecycle state — the new bridge instance has no startup
+      // page yet, so the next paint must be createStartUpPageContainer.
+      this.startupRendered = false;
       const bridgePromise = waitForEvenAppBridge();
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Bridge timeout')), timeoutMs)
@@ -232,6 +244,7 @@ export class EvenHubBridge {
         ),
       );
       const success = result === StartUpPageCreateResult.success;
+      if (success) this.startupRendered = true;
       if (!success) {
         console.error('[EvenHubBridge] createStartUpPageContainer failed:', result);
       }
@@ -246,6 +259,21 @@ export class EvenHubBridge {
     if (!this.bridge) {
       console.log('[EvenHubBridge] No bridge — skipping updatePage.');
       return false;
+    }
+
+    // First paint after init: the bridge has no startup page yet, so we
+    // MUST call createStartUpPageContainer instead of rebuildPageContainer.
+    // RebuildPageContainer and CreateStartUpPageContainer have the same
+    // shape; reconstruct the equivalent payload.
+    if (!this.startupRendered) {
+      const startupContainer = new CreateStartUpPageContainerImpl({
+        containerTotalNum: container.containerTotalNum,
+        textObject: container.textObject,
+        imageObject: container.imageObject,
+        listObject: container.listObject,
+      });
+      const setup = await this.setupPage(startupContainer);
+      return setup.success;
     }
 
     try {
