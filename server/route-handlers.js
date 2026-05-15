@@ -239,6 +239,20 @@ function smartThingsErrorMessage(payload, status) {
   return `SmartThings request failed with status ${status}`;
 }
 
+function describeFetchCause(err) {
+  // Node/undici wraps connection failures as `TypeError: fetch failed` with
+  // the real reason in err.cause. Surface it so "fetch failed" stops being
+  // an opaque dead end.
+  const cause = err && err.cause ? err.cause : null;
+  const parts = [];
+  if (err && err.name) parts.push(err.name);
+  if (cause && cause.code) parts.push(`code=${cause.code}`);
+  if (cause && cause.errno !== undefined) parts.push(`errno=${cause.errno}`);
+  if (cause && cause.message) parts.push(`cause=${cause.message}`);
+  else if (err && err.message) parts.push(`msg=${err.message}`);
+  return parts.join(' ') || String(err);
+}
+
 async function smartThingsApiRequest(session, pathOrUrl, options = {}) {
   // Accept either a relative path ("/scenes") or an absolute URL — SmartThings
   // pagination `_links.next.href` values are absolute, so following them must
@@ -247,15 +261,32 @@ async function smartThingsApiRequest(session, pathOrUrl, options = {}) {
     typeof pathOrUrl === 'string' && pathOrUrl.startsWith('http')
       ? pathOrUrl
       : `${SMARTTHINGS_API_BASE_URL}${pathOrUrl}`;
-  const response = await fetch(url, {
-    method: options.method ?? 'GET',
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${session.accessToken}`,
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 12000);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: options.method ?? 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${session.accessToken}`,
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
+      redirect: 'follow',
+    });
+  } catch (err) {
+    // Connection-layer failure (DNS / TLS / reset / abort / bad redirect).
+    return {
+      ok: false,
+      status: 502,
+      payload: {},
+      networkError: describeFetchCause(err),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
   const payload = await response.json().catch(() => ({}));
   return {
     ok: response.ok,
@@ -545,10 +576,17 @@ export async function handleSmartThingsExecuteRequest(request, response) {
         pageGuard += 1;
         const result = await smartThingsApiRequest(session, next);
         if (!result.ok) {
-          logRelay('response', relayContext, `status=${result.status} ok=false page=${pageGuard}`);
+          const detail = result.networkError
+            ? `network: ${result.networkError}`
+            : smartThingsErrorMessage(result.payload, result.status);
+          logRelay(
+            'response',
+            relayContext,
+            `status=${result.status} ok=false page=${pageGuard} ${result.networkError ? `netErr=${result.networkError}` : ''}`
+          );
           return json(response, result.status, {
             requestId: relayContext.requestId,
-            error: smartThingsErrorMessage(result.payload, result.status),
+            error: `scenes ${detail}`,
             response: result.payload,
           });
         }
