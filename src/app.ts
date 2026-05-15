@@ -2930,6 +2930,16 @@ export async function initApp(): Promise<void> {
     return ACCEL_STEPS[accelBurstIndex] ?? 1;
   }
 
+  // Click dedup — the firmware emits CLICK twice for a single physical tap
+  // (confirmed via debug log: two `field=sys eventType=null` events ~50 ms
+  // apart). Without this, the first click navigates into a sub-menu and the
+  // second hits the new view's index-0 ("← Back") slot, bouncing back to
+  // main. Real double-taps come through as a separate DOUBLE_CLICK_EVENT
+  // (eventType=3), so dedup'ing CLICK doesn't break double-tap.
+  const CLICK_DEDUP_WINDOW_MS = 250;
+  let lastClickAt = 0;
+  let lastDoubleClickAt = 0;
+
   function handleTextModeEvent(event: EvenHubEvent): boolean {
     const rawType =
       event.listEvent?.eventType ??
@@ -2951,10 +2961,19 @@ export async function initApp(): Promise<void> {
       return true;
     }
     if (eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+      const now = Date.now();
+      if (now - lastDoubleClickAt < CLICK_DEDUP_WINDOW_MS) return true;
+      lastDoubleClickAt = now;
+      // Suppress the click that the firmware fired alongside the double-click
+      // (their bookkeeping is unfortunately overlapping).
+      lastClickAt = now;
       triggerTextModeTap(2);
       return true;
     }
     if (eventType === OsEventTypeList.CLICK_EVENT || eventType == null) {
+      const now = Date.now();
+      if (now - lastClickAt < CLICK_DEDUP_WINDOW_MS) return true;
+      lastClickAt = now;
       triggerTextModeTap(1);
       return true;
     }
@@ -2975,14 +2994,16 @@ export async function initApp(): Promise<void> {
     const storedLaunchResume = await storedLaunchResumePromise;
     try {
       await preferencesLoadPromise;
+      const pref = store.getState().preferences.glassesMenuDefault;
       // If the user has already navigated (a buffered tap fired after init,
       // or they tapped during the storage/preferences await), respect their
       // intent — don't reset to the configured default view.
       if (userHasInteracted) {
-        appendDebugLog('Launch preference: skipping (user already interacted).');
+        appendDebugLog(`Launch preference (${pref}): skipping (user already interacted).`);
         return;
       }
-      if (store.getState().preferences.glassesMenuDefault === 'resume') {
+      appendDebugLog(`Launch preference (${pref}): applying — currentView=${store.getState().listView}`);
+      if (pref === 'resume') {
         const restored = await restoreLaunchResume(storedLaunchResume);
         if (!restored) openConfiguredGlassesMenuView();
       } else {
@@ -3005,6 +3026,13 @@ export async function initApp(): Promise<void> {
     // launch-preference override so we don't snap them back to the default
     // view after they've already navigated.
     userHasInteracted = true;
+    const t =
+      event.listEvent?.eventType ??
+      event.textEvent?.eventType ??
+      event.sysEvent?.eventType ??
+      null;
+    const field = event.listEvent ? 'list' : event.textEvent ? 'text' : event.sysEvent ? 'sys' : '?';
+    appendDebugLog(`Hub event: field=${field} eventType=${t ?? 'null'} layout=${glassesLayoutMode}`);
     if (canUseTextGlassesLayout()) {
       handleTextModeEvent(event);
       return;
