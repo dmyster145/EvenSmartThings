@@ -71,6 +71,7 @@ import {
   executeBatchDeviceCommandsViaServer,
   executeDeviceCommandViaServer,
   executeSceneViaServer,
+  listScenesViaServer,
   getSessionStatus,
   getSmartThingsAccessToken,
   buildCrossDeviceConnectUrl,
@@ -1302,19 +1303,20 @@ export async function initApp(): Promise<void> {
   // paint here — once data loads, refreshPage() drives in-place updates.
 
   (async () => {
-    appendDebugLog('Scenes load: starting');
+    appendDebugLog('Scenes load: starting (via server relay)');
     try {
-      // Scope to locationId (same as rooms/devices). The unscoped
-      // client.scenes.list() hits the all-locations scenes endpoint, which
-      // fails with a network-layer error for some accounts (confirmed in a
-      // user log: rooms/devices succeed, unscoped scenes → "Network Error").
+      // Route scene listing through our server, not direct browser→
+      // api.smartthings.com. The direct call fails with a network-layer
+      // error for some accounts (no HTTP response — CORS/redirect/reset)
+      // even though rooms/devices/locations succeed and command execution
+      // through the server works. The server proxy has no browser network
+      // constraints and follows pagination server-side.
       const locationId = await getLocationId();
-      appendDebugLog(`Scenes load: locationId=${locationId ? locationId.slice(0, 8) + '…' : 'none (unscoped fallback)'}`);
-      const scenes = await withSmartThingsClient((client) =>
-        locationId ? client.scenes.list({ locationId: [locationId] }) : client.scenes.list()
-      );
-      const normalized = normalizeScenes(scenes);
-      appendDebugLog(`Scenes load: success raw=${Array.isArray(scenes) ? scenes.length : 'n/a'} normalized=${normalized.length}`);
+      appendDebugLog(`Scenes load: locationId=${locationId ? locationId.slice(0, 8) + '…' : 'none (all locations)'}`);
+      const res = await listScenesViaServer(locationId);
+      const items = Array.isArray(res.items) ? res.items : [];
+      const normalized = normalizeScenes(items as SceneSummary[]);
+      appendDebugLog(`Scenes load: success raw=${items.length} normalized=${normalized.length}`);
       store.dispatch({ type: 'SCENES_LOADED', scenes: normalized });
     } catch (err) {
       const status = (err as { status?: unknown; statusCode?: unknown })?.status

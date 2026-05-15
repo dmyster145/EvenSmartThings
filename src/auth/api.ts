@@ -40,6 +40,11 @@ export type SmartThingsBatchRelayResponse = {
   results: SmartThingsBatchRelayResult[];
 };
 
+export type SmartThingsSceneListResponse = {
+  requestId?: string;
+  items?: Array<{ sceneId?: string; sceneName?: string }>;
+};
+
 declare const __API_BASE_URL__: string;
 const API_BASE: string =
   typeof __API_BASE_URL__ !== 'undefined' && __API_BASE_URL__ ? __API_BASE_URL__ : '';
@@ -329,6 +334,20 @@ export async function executeSceneViaServer(sceneId: string): Promise<SmartThing
   return executeSmartThingsRelayRequest<SmartThingsRelayResponse>({
     kind: 'scene',
     sceneId,
+  });
+}
+
+/**
+ * List scenes through the server relay instead of calling api.smartthings.com
+ * directly from the WebView. The direct browser call fails with a network-layer
+ * error for some accounts (no HTTP response — CORS/redirect/reset) while
+ * rooms/devices/locations succeed; the server proxy has no browser network
+ * constraints and follows pagination server-side.
+ */
+export async function listScenesViaServer(locationId?: string): Promise<SmartThingsSceneListResponse> {
+  return executeSmartThingsRelayRequest<SmartThingsSceneListResponse>({
+    kind: 'list-scenes',
+    ...(locationId ? { locationId } : {}),
   });
 }
 

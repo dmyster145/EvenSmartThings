@@ -239,8 +239,15 @@ function smartThingsErrorMessage(payload, status) {
   return `SmartThings request failed with status ${status}`;
 }
 
-async function smartThingsApiRequest(session, path, options = {}) {
-  const response = await fetch(`${SMARTTHINGS_API_BASE_URL}${path}`, {
+async function smartThingsApiRequest(session, pathOrUrl, options = {}) {
+  // Accept either a relative path ("/scenes") or an absolute URL — SmartThings
+  // pagination `_links.next.href` values are absolute, so following them must
+  // not re-prepend the API base.
+  const url =
+    typeof pathOrUrl === 'string' && pathOrUrl.startsWith('http')
+      ? pathOrUrl
+      : `${SMARTTHINGS_API_BASE_URL}${pathOrUrl}`;
+  const response = await fetch(url, {
     method: options.method ?? 'GET',
     headers: {
       Accept: 'application/json',
@@ -520,6 +527,38 @@ export async function handleSmartThingsExecuteRequest(request, response) {
 
       logRelay('response', relayContext, `status=200 ok=true count=${results.length}`);
       return json(response, 200, { requestId: relayContext.requestId, results });
+    }
+
+    if (kind === 'list-scenes') {
+      // Listing scenes direct browser→api.smartthings.com fails with a
+      // network-layer error for some accounts (CORS / redirect / reset),
+      // even though rooms/devices/locations succeed. Routing it through the
+      // server (which already proxies command execution reliably) sidesteps
+      // the browser network constraints entirely.
+      const locationId = typeof body?.locationId === 'string' ? body.locationId.trim() : '';
+      const query = locationId ? `?locationId=${encodeURIComponent(locationId)}` : '';
+      logRelay('dispatch', relayContext, `list-scenes locationId=${locationId || 'all'}`);
+      const items = [];
+      let next = `/scenes${query}`;
+      let pageGuard = 0;
+      while (next && pageGuard < 25) {
+        pageGuard += 1;
+        const result = await smartThingsApiRequest(session, next);
+        if (!result.ok) {
+          logRelay('response', relayContext, `status=${result.status} ok=false page=${pageGuard}`);
+          return json(response, result.status, {
+            requestId: relayContext.requestId,
+            error: smartThingsErrorMessage(result.payload, result.status),
+            response: result.payload,
+          });
+        }
+        const pageItems = Array.isArray(result.payload?.items) ? result.payload.items : [];
+        for (const item of pageItems) items.push(item);
+        const nextHref = result.payload?._links?.next?.href;
+        next = typeof nextHref === 'string' && nextHref ? nextHref : null;
+      }
+      logRelay('response', relayContext, `status=200 ok=true scenes=${items.length} pages=${pageGuard}`);
+      return json(response, 200, { requestId: relayContext.requestId, items });
     }
 
     logRelay('invalid', relayContext, 'reason=unsupported-kind');
