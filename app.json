@@ -2,7 +2,7 @@
   "package_id": "io.github.dmyster145.smartthingscontrols",
   "edition": "202601",
   "name": "SmartThings Control",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "min_app_version": "2.0.0",
   "min_sdk_version": "0.0.10",
   "tagline": "SmartThings for your G2 glasses",
@@ -17,7 +17,9 @@
         "https://api.smartthings.com",
         "https://auth-global.api.smartthings.com",
         "https://account.smartthings.com",
-        "https://key.smartthings.com"
+        "https://key.smartthings.com",
+        "https://evenrealities.com",
+        "https://react.dev"
       ]
     }
   ],
