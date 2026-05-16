@@ -3048,13 +3048,6 @@ export async function initApp(): Promise<void> {
     // launch-preference override so we don't snap them back to the default
     // view after they've already navigated.
     userHasInteracted = true;
-    const t =
-      event.listEvent?.eventType ??
-      event.textEvent?.eventType ??
-      event.sysEvent?.eventType ??
-      null;
-    const field = event.listEvent ? 'list' : event.textEvent ? 'text' : event.sysEvent ? 'sys' : '?';
-    appendDebugLog(`Hub event: field=${field} eventType=${t ?? 'null'} layout=${glassesLayoutMode}`);
     if (canUseTextGlassesLayout()) {
       handleTextModeEvent(event);
       return;
