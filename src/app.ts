@@ -964,6 +964,33 @@ export async function initApp(): Promise<void> {
   hub.subscribeEvents(eventForwarder);
   appendDebugLog('Early event forwarder armed.');
 
+  // Exit-only handler for states where the full app handler never gets
+  // wired (not authenticated / server unreachable — those paths return
+  // early from initApp). ER requires double-tap-to-exit to work on the
+  // root page regardless of connection status. Double-tap (sysEvent
+  // eventType 3) opens the native system exit dialog; everything else is
+  // ignored on these dead-end screens.
+  function installExitOnlyEventHandler(reason: string): void {
+    if (activeEventHandler) return; // full handler already took over
+    const exitHandler = (event: EvenHubEvent): void => {
+      const t =
+        event.listEvent?.eventType ??
+        event.textEvent?.eventType ??
+        event.sysEvent?.eventType ??
+        null;
+      const mapped = t != null ? OsEventTypeList.fromJson(t) ?? Number(t) : null;
+      if (mapped === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+        appendDebugLog(`Exit-only: double-tap → system exit dialog (${reason}).`);
+        void hub.requestSystemExit();
+      }
+    };
+    activeEventHandler = exitHandler;
+    const drained = earlyEventBuffer.length;
+    for (const event of earlyEventBuffer) exitHandler(event);
+    earlyEventBuffer.length = 0;
+    appendDebugLog(`Exit-only event handler installed (${reason}, drained=${drained}).`);
+  }
+
   // Instant first paint — required by Even Realities review guidance:
   // "App needs instant OS rendering on launch for normal display."
   //
@@ -1202,8 +1229,9 @@ export async function initApp(): Promise<void> {
   } catch (err) {
     console.warn('[SmartThingsControls] getSessionStatus error:', err);
     appendDebugLog(`Session status failed: ${getErrorMessage(err)}`);
-    void hub.updatePage(composeTextFallbackPage('SmartThings\n\nCould not reach server.\nOpen the companion on your phone.'));
+    void hub.updatePage(composeTextFallbackPage('SmartThings\n\nCould not reach server.\nOpen the companion on your phone.\n\nDouble-tap to exit.'));
     showPanel(AUTH_RETURN_ID);
+    installExitOnlyEventHandler('server-unreachable');
     return;
   }
 
@@ -1213,8 +1241,9 @@ export async function initApp(): Promise<void> {
       : initialSessionStatus.configured
         ? AUTH_DISCONNECTED_MESSAGE
         : AUTH_CONFIG_MISSING_MESSAGE;
-    void hub.updatePage(composeTextFallbackPage('SmartThings\n\nNot connected.\nOpen the companion on\nyour phone to connect.'));
+    void hub.updatePage(composeTextFallbackPage('SmartThings\n\nNot connected.\nOpen the companion on\nyour phone to connect.\n\nDouble-tap to exit.'));
     showConnectPanelWithDebug(disconnectMessage, initialSessionStatus.configured);
+    installExitOnlyEventHandler('not-authenticated');
     return;
   }
 
@@ -1314,7 +1343,13 @@ export async function initApp(): Promise<void> {
   // paint is what the post-startup branches below check. No second BLE
   // paint here — once data loads, refreshPage() drives in-place updates.
 
-  (async () => {
+  // Load-completion flags consumed by the watchdog below. A load is only
+  // "done" once its data is actually in the store — an error or a hung
+  // (never-resolving) SDK call leaves the flag false so the watchdog retries.
+  let scenesLoaded = false;
+  let roomsLoaded = false;
+
+  async function loadScenes(): Promise<void> {
     appendDebugLog('Scenes load: starting (via server relay)');
     try {
       // Route scene listing through our server, not direct browser→
@@ -1330,6 +1365,8 @@ export async function initApp(): Promise<void> {
       const normalized = normalizeScenes(items as SceneSummary[]);
       appendDebugLog(`Scenes load: success raw=${items.length} normalized=${normalized.length}`);
       store.dispatch({ type: 'SCENES_LOADED', scenes: normalized });
+      scenesLoaded = true;
+      refreshPage();
     } catch (err) {
       const status = (err as { status?: unknown; statusCode?: unknown })?.status
         ?? (err as { status?: unknown; statusCode?: unknown })?.statusCode;
@@ -1338,11 +1375,46 @@ export async function initApp(): Promise<void> {
       if (await handleTerminalAuthFailure(err)) return;
       store.dispatch({ type: 'SCENES_ERROR', message });
     }
-  })();
+  }
+
+  void loadScenes();
 
   roomsLoadPromise = loadRooms();
   void roomsLoadPromise;
   void loadGlobalStats();
+
+  // Watchdog: the rooms/devices path uses the SmartThings SDK's direct
+  // browser→api.smartthings.com calls, which have NO timeout — a flaky or
+  // backgrounded-phone network can leave them hung forever, so the static
+  // menu shows but nothing loads under it. If either loader hasn't completed
+  // after a delay, retry it (bounded). getLocationId() is memoized so this
+  // doesn't re-hammer locations.list().
+  const DATA_WATCHDOG_FIRST_MS = 12000;
+  const DATA_WATCHDOG_RETRY_MS = 15000;
+  const DATA_WATCHDOG_MAX_ATTEMPTS = 3;
+  function scheduleDataLoadWatchdog(): void {
+    let attempts = 0;
+    const tick = (): void => {
+      if (scenesLoaded && roomsLoaded) return;
+      attempts += 1;
+      appendDebugLog(
+        `Data watchdog (attempt ${attempts}/${DATA_WATCHDOG_MAX_ATTEMPTS}): scenesLoaded=${scenesLoaded} roomsLoaded=${roomsLoaded} — retrying missing`,
+        true
+      );
+      if (!scenesLoaded) void loadScenes();
+      if (!roomsLoaded) {
+        roomsLoadPromise = loadRooms();
+        void roomsLoadPromise;
+      }
+      if (attempts < DATA_WATCHDOG_MAX_ATTEMPTS) {
+        setTimeout(tick, DATA_WATCHDOG_RETRY_MS);
+      } else {
+        appendDebugLog('Data watchdog: max attempts reached; giving up.', true);
+      }
+    };
+    setTimeout(tick, DATA_WATCHDOG_FIRST_MS);
+  }
+  scheduleDataLoadWatchdog();
 
   try {
     await loadIconCache();
@@ -1402,6 +1474,7 @@ export async function initApp(): Promise<void> {
         ],
       });
       store.dispatch({ type: 'ALL_DEVICES_LOADED', devices: normalizeDevices(devicesRes) });
+      roomsLoaded = true;
     } catch (err) {
       const status = (err as { status?: unknown; statusCode?: unknown })?.status
         ?? (err as { status?: unknown; statusCode?: unknown })?.statusCode;
