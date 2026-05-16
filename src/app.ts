@@ -1155,11 +1155,23 @@ export async function initApp(): Promise<void> {
     appendDebugLog(`Startup: pendingAuthId=${pendingId ?? 'none'}`);
 
     const cachedSession = readCachedSessionStatus();
+    const restoredToken = readStoredSessionToken();
     if (cachedSession) {
       // Use cached session to show UI immediately; verify in background.
       initialSessionStatus = cachedSession;
       usedCachedSession = true;
       appendDebugLog('Session check: using cached session status (background verify pending)');
+    } else if (restoredToken) {
+      // We have a bearer token restored from Even bridge persistent storage.
+      // Don't block the entire startup on the /api/session network verify —
+      // when the phone is backgrounded (app opened from glasses, screen off)
+      // that fetch can stall 20–30s, delaying scenes/rooms/render. Proceed
+      // optimistically and verify in the background (same pattern as the
+      // cached-session path). A 401 on any subsequent SmartThings call still
+      // routes through handleTerminalAuthFailure.
+      initialSessionStatus = { authenticated: true, configured: true };
+      usedCachedSession = true;
+      appendDebugLog('Session check: optimistic (restored bearer token; background verify pending)');
     } else {
       initialSessionStatus = await getSessionStatus();
       appendDebugLog(`Session check: authenticated=${initialSessionStatus.authenticated} configured=${initialSessionStatus.configured}`);

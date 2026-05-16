@@ -218,19 +218,37 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
+// Bare fetches to our own backend had no timeout. When the phone WebView is
+// backgrounded (screen off, app opened from the glasses) the radio is
+// throttled and these can stall 20–30s, blocking the whole startup. Bound
+// them so a stalled request fails fast instead of hanging the launch.
+const BACKEND_FETCH_TIMEOUT_MS = 10000;
+
+async function fetchWithTimeout(input: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function getSessionStatus(): Promise<SessionStatus> {
-  const response = await fetch(`${API_BASE}/api/session`, {
-    credentials: 'include',
-    headers: { Accept: 'application/json', ...getSessionAuthHeaders() },
-  });
+  const response = await fetchWithTimeout(
+    `${API_BASE}/api/session`,
+    { credentials: 'include', headers: { Accept: 'application/json', ...getSessionAuthHeaders() } },
+    BACKEND_FETCH_TIMEOUT_MS,
+  );
   return parseJsonResponse<SessionStatus>(response);
 }
 
 export async function getSmartThingsAccessToken(): Promise<AccessTokenResponse> {
-  const response = await fetch(`${API_BASE}/api/smartthings/access-token`, {
-    credentials: 'include',
-    headers: { Accept: 'application/json', ...getSessionAuthHeaders() },
-  });
+  const response = await fetchWithTimeout(
+    `${API_BASE}/api/smartthings/access-token`,
+    { credentials: 'include', headers: { Accept: 'application/json', ...getSessionAuthHeaders() } },
+    BACKEND_FETCH_TIMEOUT_MS,
+  );
   return parseJsonResponse<AccessTokenResponse>(response);
 }
 
