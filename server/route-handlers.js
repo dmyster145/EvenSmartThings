@@ -562,10 +562,25 @@ export async function handleSmartThingsExecuteRequest(request, response) {
 
     if (kind === 'list-scenes') {
       // Listing scenes direct browser→api.smartthings.com fails with a
-      // network-layer error for some accounts (CORS / redirect / reset),
-      // even though rooms/devices/locations succeed. Routing it through the
-      // server (which already proxies command execution reliably) sidesteps
-      // the browser network constraints entirely.
+      // network-layer error for some accounts, even though rooms/devices/
+      // locations succeed. Routing it through the server sidesteps the
+      // browser network constraints. SmartThings also leaks INTERNAL
+      // hostnames in pagination `_links.next.href` (e.g.
+      // alliance.na04.stinternal.net) which aren't publicly resolvable —
+      // ENOTFOUND. So we never follow the absolute next href; we keep only
+      // its path+query and re-issue against the public api.smartthings.com.
+      const toPublicScenesPath = (href) => {
+        try {
+          const u = new URL(href);
+          let path = `${u.pathname}${u.search}`;
+          // SMARTTHINGS_API_BASE_URL already ends in /v1 — drop a leading
+          // /v1 from the href path so we don't get /v1/v1/scenes.
+          if (path.startsWith('/v1/')) path = path.slice(3);
+          return path || null;
+        } catch {
+          return null;
+        }
+      };
       const locationId = typeof body?.locationId === 'string' ? body.locationId.trim() : '';
       const query = locationId ? `?locationId=${encodeURIComponent(locationId)}` : '';
       logRelay('dispatch', relayContext, `list-scenes locationId=${locationId || 'all'}`);
@@ -582,8 +597,14 @@ export async function handleSmartThingsExecuteRequest(request, response) {
           logRelay(
             'response',
             relayContext,
-            `status=${result.status} ok=false page=${pageGuard} ${result.networkError ? `netErr=${result.networkError}` : ''}`
+            `status=${result.status} ok=false page=${pageGuard} collected=${items.length} ${result.networkError ? `netErr=${result.networkError}` : ''}`
           );
+          // If we already collected at least one page, degrade gracefully:
+          // return what we have rather than zero scenes.
+          if (items.length > 0) {
+            logRelay('response', relayContext, `status=200 ok=true partial scenes=${items.length}`);
+            return json(response, 200, { requestId: relayContext.requestId, items, partial: true });
+          }
           return json(response, result.status, {
             requestId: relayContext.requestId,
             error: `scenes ${detail}`,
@@ -593,7 +614,8 @@ export async function handleSmartThingsExecuteRequest(request, response) {
         const pageItems = Array.isArray(result.payload?.items) ? result.payload.items : [];
         for (const item of pageItems) items.push(item);
         const nextHref = result.payload?._links?.next?.href;
-        next = typeof nextHref === 'string' && nextHref ? nextHref : null;
+        next =
+          typeof nextHref === 'string' && nextHref ? toPublicScenesPath(nextHref) : null;
       }
       logRelay('response', relayContext, `status=200 ok=true scenes=${items.length} pages=${pageGuard}`);
       return json(response, 200, { requestId: relayContext.requestId, items });
