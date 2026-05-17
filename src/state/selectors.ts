@@ -149,23 +149,20 @@ export function getOrderedFavorites(state: AppState): FavoriteItem[] {
     byKey.forEach((f) => ordered.push(f));
     items = ordered;
   }
-  // While the underlying scene/device lists haven't loaded yet, a favorite
-  // can't resolve its real name. Show "Loading…" instead of the generic
-  // "Scene"/"Device" so the user sees an honest in-progress state rather
-  // than a list that looks broken for ~10–20s on a backgrounded launch.
-  const scenesLoading = state.scenes.length === 0 && state.status === 'loading';
-  const devicesLoading = state.allDevices.length === 0 && state.devices.length === 0;
+  // Favorites resolve their real names from the on-device list cache
+  // (hydrated at startup) so they almost never show a generic placeholder.
+  // The background-refresh hint moved to the stats box, so a still-unresolved
+  // favorite just falls back to the plain "Scene"/"Device" label rather than
+  // an inline loading row.
   const result: FavoriteItem[] = [];
   for (const { type, id } of items) {
     if (type === 'scene') {
       const scene = scenesById.get(id);
-      const fallback = scene?.sceneName ?? (scenesLoading ? 'Loading…' : 'Scene');
-      const displayName = getDisplayName(state, 'scene', id, fallback);
+      const displayName = getDisplayName(state, 'scene', id, scene?.sceneName ?? 'Scene');
       result.push({ type: 'scene', id, displayName, scene: scene ?? undefined });
     } else {
       const device = devicesById.get(id);
-      const fallback = device?.deviceName ?? (devicesLoading ? 'Loading…' : 'Device');
-      const displayName = getDisplayName(state, 'device', id, fallback);
+      const displayName = getDisplayName(state, 'device', id, device?.deviceName ?? 'Device');
       result.push({ type: 'device', id, displayName, device });
     }
   }

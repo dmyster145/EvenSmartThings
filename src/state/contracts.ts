@@ -215,6 +215,11 @@ export interface AppState {
   preferences: Preferences;
   /** All devices for location (for resolving favorite device names when not in a room). */
   allDevices: DeviceEntry[];
+  /** True while a background list refresh is in flight. When we hydrate from
+   *  the on-device cache the lists show real items immediately and this drives
+   *  the "Refreshing…" hint in the stats box instead of cluttering the list
+   *  with placeholders. */
+  listsRefreshing: boolean;
 }
 
 export type Action =
@@ -235,6 +240,8 @@ export type Action =
   | { type: 'DEVICES_LOADED'; devices: DeviceEntry[] }
   | { type: 'DEVICES_ERROR'; message: string }
   | { type: 'ALL_DEVICES_LOADED'; devices: DeviceEntry[] }
+  | { type: 'LISTS_REFRESH_START' }
+  | { type: 'LISTS_REFRESH_END' }
   | { type: 'EXECUTE_START' }
   | { type: 'EXECUTE_END'; success: boolean; errorMessage?: string }
   | { type: 'STATS_GLOBAL'; stats: GlobalStats }

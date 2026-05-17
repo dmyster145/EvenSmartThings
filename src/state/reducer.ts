@@ -155,6 +155,12 @@ export function reduce(state: AppState, action: Action): AppState {
       return { ...state, allDevices: sorted };
     }
 
+    case 'LISTS_REFRESH_START':
+      return { ...state, listsRefreshing: true };
+
+    case 'LISTS_REFRESH_END':
+      return { ...state, listsRefreshing: false };
+
     case 'EXECUTE_START':
       return { ...state, status: 'executing' };
 
@@ -237,5 +243,6 @@ export function buildInitialState(): AppState {
     focusedListIndex: 0,
     preferences: { ...DEFAULT_PREFERENCES },
     allDevices: [],
+    listsRefreshing: true,
   };
 }

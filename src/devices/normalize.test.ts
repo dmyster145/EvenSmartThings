@@ -341,8 +341,9 @@ describe('deviceTypeDisplayName', () => {
 
   it('uses the main component, not a secondary component', () => {
     const d = makeMultiComponentDevice({ other: [] });
-    (d as any).components[0].categories = [{ name: 'OtherType', categoryType: 'user' }];
-    (d as any).components.unshift({ id: 'main', capabilities: [], categories: [{ name: 'MainType', categoryType: 'user' }] });
+    const comps = (d as unknown as { components: Array<Record<string, unknown>> }).components;
+    comps[0].categories = [{ name: 'OtherType', categoryType: 'user' }];
+    comps.unshift({ id: 'main', capabilities: [], categories: [{ name: 'MainType', categoryType: 'user' }] });
     expect(deviceTypeDisplayName(d)).toBe('MainType');
   });
 });

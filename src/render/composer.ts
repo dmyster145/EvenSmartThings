@@ -115,7 +115,11 @@ function pushStatLine(
 }
 
 function buildStatsContent(state: AppState): string {
-  if (!vis(state).enabled) return '';
+  // The background-refresh indicator lives in the right-side stats box (not
+  // cluttering the list). Show it even when stats are disabled so the wearer
+  // always knows a refresh is in flight while cached items are displayed.
+  const refreshing = state.listsRefreshing;
+  if (!vis(state).enabled) return refreshing ? 'Refreshing…' : '';
   if (state.authStatus === 'expired') {
     return [AUTH_EXPIRED_STATS_TITLE, AUTH_EXPIRED_STATS_DETAIL].join('\n');
   }
@@ -190,7 +194,8 @@ function buildStatsContent(state: AppState): string {
     }
   }
 
-  return lines.slice(0, MAX_STAT_LINES).join('\n');
+  const body = lines.slice(0, MAX_STAT_LINES);
+  return (refreshing ? ['Refreshing…', ...body] : body).join('\n');
 }
 
 /** Stats text for the right panel. Use with hub.updateText() to refresh stats without rebuilding the page. */
@@ -217,15 +222,25 @@ function buildStatsTextContainers(state: AppState): TextContainerProperty[] {
   return [stats];
 }
 
+/** Pure: the placeholder rows to show when the scenes list is empty, or null
+ *  when there are scenes to render. Exported for regression tests so the
+ *  "Loading scenes…" vs "No scenes" vs auth-expired decision is locked. */
+export function scenesEmptyPlaceholder(state: AppState): string[] | null {
+  if (getOrderedScenes(state).length > 0) return null;
+  if (state.authStatus === 'expired') return [AUTH_EXPIRED_LIST_LABEL];
+  // While a refresh is in flight, don't claim "No scenes" yet and don't
+  // clutter the list with a loading row — the "Refreshing…" hint is shown in
+  // the stats box instead. Just the Back affordance.
+  if (state.listsRefreshing) return [LABEL_BACK];
+  return [LABEL_BACK, 'No scenes'];
+}
+
 /** List item names for scenes view (paginated; first page has ← Back, others have ← Previous). */
 function sceneNamesForListView(state: AppState): string[] {
   const scenes = getOrderedScenes(state);
-  const { listPageIndex = 0, status } = state;
-  if (scenes.length === 0) {
-    if (status === 'loading') return [LABEL_BACK, 'Loading scenes…'];
-    if (state.authStatus === 'expired') return [AUTH_EXPIRED_LIST_LABEL];
-    return [LABEL_BACK, 'No scenes'];
-  }
+  const { listPageIndex = 0 } = state;
+  const placeholder = scenesEmptyPlaceholder(state);
+  if (placeholder) return placeholder;
 
   const firstPageSlots = scenes.length <= SCENES_PER_PAGE ? SCENES_PER_PAGE : SCENES_PER_PAGE - 1;
   const totalPages =

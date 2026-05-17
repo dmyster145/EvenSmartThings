@@ -102,6 +102,12 @@ import {
   type LaunchResumeState,
 } from './state/launch-resume-storage';
 import { getStoredPreferences, setStoredPreferences } from './state/preferences-storage';
+import { createResumeScheduler } from './lifecycle/resume-scheduler';
+import { installResumeLifecycle } from './lifecycle/install-resume-lifecycle';
+import { hasCredentialSignal } from './auth/credential-signal';
+import { classifyTap } from './input/tap-dedup';
+import { classifySceneResult } from './render/scene-result';
+import { LIST_CACHE_KEY, serializeListSnapshot, parseListSnapshot } from './state/list-cache';
 import { ImageRawDataUpdate, OsEventTypeList, StartUpPageCreateResult, type EvenHubEvent } from '@evenrealities/even_hub_sdk';
 
 const CONFIG_PANEL_ID = 'config';
@@ -747,23 +753,13 @@ async function runExecuteScene(
   try {
     const result = await executeSceneViaServer(scene.sceneId);
     const status = result?.status;
-    const success = status === 'success';
+    // ✓ all succeed · ! some succeed & some error · ✗ all error / single error.
+    const verdict = classifySceneResult(result);
+    const success = verdict === 'success';
+    await showConfirmation(verdict);
 
-    // Prefer per-action statuses when present to distinguish full vs partial success.
-    const results = result?.results;
-    if (results && Array.isArray(results) && results.length > 0) {
-      const successCount = results.filter((r) => r?.status === 'ACCEPTED' || r?.status === 'COMPLETED').length;
-      await showConfirmation(confirmationResultFromCounts(successCount, results.length));
-    } else if (success) {
-      await showConfirmation('success');
-    } else if (status === 'partial' || status === 'completed_with_errors') {
-      await showConfirmation('partial');
-    } else {
-      await showConfirmation('failure');
-    }
-
-    console.log(`[SmartThingsControls] Scene command result. sceneId=${scene.sceneId} status=${status ?? 'unknown'} success=${success}`);
-    store.dispatch({ type: 'EXECUTE_END', success, errorMessage: success ? undefined : (status ?? 'unknown') });
+    console.log(`[SmartThingsControls] Scene command result. sceneId=${scene.sceneId} status=${status ?? 'unknown'} verdict=${verdict}`);
+    store.dispatch({ type: 'EXECUTE_END', success, errorMessage: success ? undefined : (status ?? verdict) });
   } catch (err) {
     const message = getErrorMessage(err);
     console.warn(`[SmartThingsControls] Scene command failed. sceneId=${scene.sceneId} error=${message}`);
@@ -1183,19 +1179,16 @@ export async function initApp(): Promise<void> {
 
     const cachedSession = readCachedSessionStatus();
     const restoredToken = readStoredSessionToken();
-    // Any of these means "this user has authenticated before" — a bearer
-    // token, a URL session token from an OAuth callback, or a persisted
-    // pending-auth id. WebView localStorage is wiped between launches on the
-    // device, so the bearer token often isn't readable on cold start even
-    // for long-time users; the pending-auth id (restored from Even bridge
-    // persistent storage) is the surviving signal.
-    const hasCredentialSignal = !!restoredToken || !!urlSessionToken || !!pendingId;
+    // Any of these means "this user has authenticated before" — see
+    // hasCredentialSignal() for the rationale (WebView localStorage is wiped
+    // between launches; the persisted pending-auth id is the surviving signal).
+    const credentialSignal = hasCredentialSignal({ restoredToken, urlSessionToken, pendingId });
     if (cachedSession) {
       // Use cached session to show UI immediately; verify in background.
       initialSessionStatus = cachedSession;
       usedCachedSession = true;
       appendDebugLog('Session check: using cached session status (background verify pending)');
-    } else if (hasCredentialSignal) {
+    } else if (credentialSignal) {
       // Don't block the entire startup on the /api/session network verify.
       // When the phone is backgrounded (app opened from glasses, screen off)
       // that fetch stalls ~10s, and scenes/rooms only start AFTER it — so
@@ -1248,7 +1241,11 @@ export async function initApp(): Promise<void> {
     // handleTerminalAuthFailure → connect panel.
     let pendingIdOnFail: string | null = null;
     try { pendingIdOnFail = localStorage.getItem('smartthings_controls_pending_auth'); } catch { /* ignore */ }
-    const hasCredential = !!readStoredSessionToken() || !!pendingIdOnFail || !!urlSessionToken;
+    const hasCredential = hasCredentialSignal({
+      restoredToken: readStoredSessionToken(),
+      urlSessionToken,
+      pendingId: pendingIdOnFail,
+    });
     if (hasCredential) {
       appendDebugLog('Session check failed but credential present — proceeding optimistically.');
       initialSessionStatus = { authenticated: true, configured: true };
@@ -1374,6 +1371,56 @@ export async function initApp(): Promise<void> {
   // (never-resolving) SDK call leaves the flag false so the watchdog retries.
   let scenesLoaded = false;
   let roomsLoaded = false;
+  // "settled" = the live load finished (success OR error) — drives the
+  // "Refreshing…" stats hint off once both are done. "loaded" = real live
+  // data is in the store (success only) — gates the watchdog + cache write.
+  let scenesSettled = false;
+  let roomsSettled = false;
+  let listCacheWritten = false;
+
+  function maybeFinishRefresh(): void {
+    if (scenesSettled && roomsSettled) {
+      store.dispatch({ type: 'LISTS_REFRESH_END' });
+    }
+  }
+
+  function maybePersistListCache(): void {
+    if (listCacheWritten || !scenesLoaded || !roomsLoaded) return;
+    listCacheWritten = true;
+    const st = store.getState();
+    void hub
+      .setLocalStorage(
+        LIST_CACHE_KEY,
+        serializeListSnapshot({ scenes: st.scenes, rooms: st.rooms, allDevices: st.allDevices }),
+      )
+      .then(() => appendDebugLog(`List cache written (scenes=${st.scenes.length} rooms=${st.rooms.length} devices=${st.allDevices.length}).`))
+      .catch(() => { listCacheWritten = false; });
+  }
+
+  // Hydrate the lists from the on-device cache so the wearer sees their REAL
+  // items immediately while the slow live refresh runs. Does NOT set the
+  // scenesLoaded/roomsLoaded "live" flags (watchdog must still fetch fresh
+  // data); the live dispatch overwrites this when it arrives. Guarded so a
+  // late cache read never clobbers already-loaded fresh data.
+  void (async () => {
+    try {
+      const snap = parseListSnapshot(await hub.getLocalStorage(LIST_CACHE_KEY));
+      if (!snap) { appendDebugLog('List cache: none.'); return; }
+      let applied = false;
+      if (!scenesLoaded) { store.dispatch({ type: 'SCENES_LOADED', scenes: snap.scenes }); applied = true; }
+      if (!roomsLoaded) {
+        store.dispatch({ type: 'ROOMS_LOADED', rooms: snap.rooms });
+        store.dispatch({ type: 'ALL_DEVICES_LOADED', devices: snap.allDevices });
+        applied = true;
+      }
+      if (applied) {
+        appendDebugLog(`List cache hydrated: scenes=${snap.scenes.length} rooms=${snap.rooms.length} devices=${snap.allDevices.length}.`);
+        refreshPage();
+      }
+    } catch {
+      // Live load covers it.
+    }
+  })();
 
   async function loadScenes(): Promise<void> {
     appendDebugLog('Scenes load: starting (via server relay)');
@@ -1392,14 +1439,19 @@ export async function initApp(): Promise<void> {
       appendDebugLog(`Scenes load: success raw=${items.length} normalized=${normalized.length}`);
       store.dispatch({ type: 'SCENES_LOADED', scenes: normalized });
       scenesLoaded = true;
+      scenesSettled = true;
       refreshPage();
+      maybePersistListCache();
+      maybeFinishRefresh();
     } catch (err) {
+      scenesSettled = true;
       const status = (err as { status?: unknown; statusCode?: unknown })?.status
         ?? (err as { status?: unknown; statusCode?: unknown })?.statusCode;
       const message = getErrorMessage(err);
       appendDebugLog(`Scenes load: failed status=${status ?? 'n/a'} message=${message}`, true);
-      if (await handleTerminalAuthFailure(err)) return;
+      if (await handleTerminalAuthFailure(err)) { maybeFinishRefresh(); return; }
       store.dispatch({ type: 'SCENES_ERROR', message });
+      maybeFinishRefresh();
     }
   }
 
@@ -1427,8 +1479,12 @@ export async function initApp(): Promise<void> {
         `Data watchdog (attempt ${attempts}/${DATA_WATCHDOG_MAX_ATTEMPTS}): scenesLoaded=${scenesLoaded} roomsLoaded=${roomsLoaded} — retrying missing`,
         true
       );
-      if (!scenesLoaded) void loadScenes();
+      // New refresh cycle — show the "Refreshing…" hint again until the
+      // retried loader(s) settle.
+      store.dispatch({ type: 'LISTS_REFRESH_START' });
+      if (!scenesLoaded) { scenesSettled = false; void loadScenes(); }
       if (!roomsLoaded) {
+        roomsSettled = false;
         roomsLoadPromise = loadRooms();
         void roomsLoadPromise;
       }
@@ -1480,7 +1536,9 @@ export async function initApp(): Promise<void> {
       if (!locationId) {
         appendDebugLog('Rooms load: aborted — no locationId returned', true);
         store.dispatch({ type: 'ROOMS_ERROR', message: 'No location found for rooms' });
+        roomsSettled = true;
         refreshPage();
+        maybeFinishRefresh();
         return;
       }
       appendDebugLog(`Rooms load: locationId=${locationId.slice(0, 8)}…`);
@@ -1501,18 +1559,23 @@ export async function initApp(): Promise<void> {
       });
       store.dispatch({ type: 'ALL_DEVICES_LOADED', devices: normalizeDevices(devicesRes) });
       roomsLoaded = true;
+      roomsSettled = true;
+      maybePersistListCache();
     } catch (err) {
+      roomsSettled = true;
       const status = (err as { status?: unknown; statusCode?: unknown })?.status
         ?? (err as { status?: unknown; statusCode?: unknown })?.statusCode;
       const message = getErrorMessage(err);
       appendDebugLog(`Rooms load: failed status=${status ?? 'n/a'} message=${message}`, true);
       if (await handleTerminalAuthFailure(err)) {
         refreshPage();
+        maybeFinishRefresh();
         return;
       }
       store.dispatch({ type: 'ROOMS_ERROR', message });
     }
     refreshPage();
+    maybeFinishRefresh();
   }
 
   // Memoize the locationId lookup — scenes, rooms, and global-stats loaders
@@ -3169,28 +3232,22 @@ export async function initApp(): Promise<void> {
       store.dispatch(action);
       const gestureTaps = action.gestureTaps ?? 1;
       const now = Date.now();
-      recentListIndices.push({ index: listIndex, time: now });
-      const cutoff = now - SCROLL_WINDOW_MS;
-      while (recentListIndices.length > 0) {
-        const first = recentListIndices[0];
-        if (first == null || first.time >= cutoff) break;
-        recentListIndices.shift();
-      }
-      const uniqueIndicesInWindow = new Set(recentListIndices.map((e) => e.index)).size;
-      const likelyScrolling = uniqueIndicesInWindow >= 2;
-
-      const isSameItemAgain = listIndex === lastTapIndex && now - lastTapTime <= TAP_WINDOW_MS;
-      const isNewItemSingleTap = !isSameItemAgain && gestureTaps === 1;
-      if (isSameItemAgain) {
-        tapCount = Math.min(tapCount + gestureTaps, 4);
-      } else {
-        tapCount = Math.min(gestureTaps, 4);
-        lastTapIndex = listIndex;
-      }
-      lastTapTime = now;
+      // Pure tap classification (extracted to src/input/tap-dedup.ts so the
+      // real algorithm is unit-testable). Snapshot the closure tap-state in,
+      // write the result back so commitTap()/triggerTextModeTap() — which
+      // read/mutate these same vars — keep working unchanged.
+      const { next, skipCommitForScroll } = classifyTap(
+        { recentListIndices, lastTapIndex, lastTapTime, tapCount },
+        { listIndex, gestureTaps, now },
+        { scrollWindowMs: SCROLL_WINDOW_MS, tapWindowMs: TAP_WINDOW_MS },
+      );
+      recentListIndices.length = 0;
+      recentListIndices.push(...next.recentListIndices);
+      lastTapIndex = next.lastTapIndex;
+      lastTapTime = next.lastTapTime;
+      tapCount = next.tapCount;
 
       if (commitTimeoutId !== null) clearTimeout(commitTimeoutId);
-      const skipCommitForScroll = isNewItemSingleTap && likelyScrolling;
       if (!skipCommitForScroll) {
         commitTimeoutId = setTimeout(commitTap, TAP_COMMIT_MS);
       } else {
@@ -3217,10 +3274,6 @@ export async function initApp(): Promise<void> {
     hub.subscribeEvents(eventForwarder);
     appendDebugLog(`EvenHub event subscription refreshed (${reason}).`);
   }
-
-  const RESUME_SYNC_DEBOUNCE_MS = 1500;
-  let resumeSyncPromise: Promise<void> | null = null;
-  let lastResumeSyncAt = 0;
 
   async function syncGlassesAfterResume(reason: string): Promise<boolean> {
     if (!hub.hasBridge()) return false;
@@ -3268,129 +3321,113 @@ export async function initApp(): Promise<void> {
     return rebuilt;
   }
 
-  async function resumeBridgeSession(reason: string): Promise<void> {
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+  // The heavy resume work, injected into the scheduler. `lightweight` ⇒ a
+  // full resume completed very recently (a brief foreground/background flap),
+  // so skip bridge re-init / session re-verify / glasses redraw — those are
+  // exactly what caused the flicker + sluggish-first-command churn. Every
+  // resume *outcome* (auth recovery, connect-panel-on-expiry, glasses resync)
+  // is preserved verbatim in the non-lightweight path.
+  async function runResume(
+    reasons: string[],
+    { lightweight }: { lightweight: boolean },
+  ): Promise<void> {
+    const reason = reasons.join(',');
+    appendDebugLog(`Resume sync triggered (${reason})${lightweight ? ' [lightweight]' : ''}.`);
+    // Wake lock is idempotent + visibility-gated; cheap to re-assert always.
+    await requestWakeLock(`resume:${reason}`);
+    if (lightweight) {
+      appendDebugLog(`Resume lightweight — recent full resume; skip re-init/verify/redraw (${reason}).`);
       return;
     }
-    const now = Date.now();
-    if (resumeSyncPromise) {
-      return resumeSyncPromise;
-    }
-    if (now - lastResumeSyncAt < RESUME_SYNC_DEBOUNCE_MS) {
-      return;
-    }
-    lastResumeSyncAt = now;
 
-    const task = (async () => {
-      appendDebugLog(`Resume sync triggered (${reason}).`);
-      invalidateSmartThingsClient(`resume:${reason}`);
-      await hub.init(3000);
-      appendDebugLog(`Resume bridge refresh complete (${reason}). bridge=${hub.hasBridge()}`);
-      if (!hub.hasBridge()) {
-        appendDebugLog(`Resume bridge refresh failed (${reason}).`, true);
+    await hub.init(3000);
+    appendDebugLog(`Resume bridge refresh complete (${reason}). bridge=${hub.hasBridge()}`);
+    if (!hub.hasBridge()) {
+      appendDebugLog(`Resume bridge refresh failed (${reason}).`, true);
+      return;
+    }
+
+    attachHubEventSubscription(`resume:${reason}`);
+
+    try {
+      let resumePendingId: string | null = null;
+      try { resumePendingId = localStorage.getItem('smartthings_controls_pending_auth'); } catch { /* ignore */ }
+      appendDebugLog(`Resume check (${reason}): pendingId=${resumePendingId ?? 'none'}`);
+      let sessionStatus = await getSessionStatus();
+      appendDebugLog(`Resume session (${reason}): authenticated=${sessionStatus.authenticated}`);
+      // If not authenticated, check if OAuth completed outside this WebView
+      // (e.g. iOS Universal Links opened the SmartThings app → Safari).
+      if (!sessionStatus.authenticated) {
+        appendDebugLog(`Resume: not authenticated, checking pending auth (${reason}).`);
+        const pendingToken = await checkPendingAuth();
+        appendDebugLog(`Resume pending auth result (${reason}): token=${pendingToken ? 'recovered' : 'none'}`);
+        if (pendingToken) {
+          appendDebugLog(`Pending auth recovered session on resume (${reason}).`);
+          sessionStatus = await getSessionStatus();
+          appendDebugLog(`Post-recovery session (${reason}): authenticated=${sessionStatus.authenticated}`);
+        }
+      }
+      appendDebugLog(
+        `Resume session status (${reason}). authenticated=${sessionStatus.authenticated} configured=${sessionStatus.configured}`
+      );
+      if (!sessionStatus.authenticated) {
+        const disconnectMessage = sessionStatus.sessionExpired
+          ? AUTH_SESSION_EXPIRED_MESSAGE
+          : sessionStatus.configured
+            ? AUTH_DISCONNECTED_MESSAGE
+            : AUTH_CONFIG_MISSING_MESSAGE;
+        showConnectPanelWithDebug(disconnectMessage, sessionStatus.configured);
         return;
       }
-
-      await requestWakeLock(`resume:${reason}`);
-
-      attachHubEventSubscription(`resume:${reason}`);
-
+      initialSessionStatus = sessionStatus;
+      authExpiredHandled = false;
+      authUI.showConnectedState(sessionStatus);
       try {
-        let resumePendingId: string | null = null;
-        try { resumePendingId = localStorage.getItem('smartthings_controls_pending_auth'); } catch { /* ignore */ }
-        appendDebugLog(`Resume check (${reason}): pendingId=${resumePendingId ?? 'none'}`);
-        let sessionStatus = await getSessionStatus();
-        appendDebugLog(`Resume session (${reason}): authenticated=${sessionStatus.authenticated}`);
-        // If not authenticated, check if OAuth completed outside this WebView
-        // (e.g. iOS Universal Links opened the SmartThings app → Safari).
-        if (!sessionStatus.authenticated) {
-          appendDebugLog(`Resume: not authenticated, checking pending auth (${reason}).`);
-          const pendingToken = await checkPendingAuth();
-          appendDebugLog(`Resume pending auth result (${reason}): token=${pendingToken ? 'recovered' : 'none'}`);
-          if (pendingToken) {
-            appendDebugLog(`Pending auth recovered session on resume (${reason}).`);
-            sessionStatus = await getSessionStatus();
-            appendDebugLog(`Post-recovery session (${reason}): authenticated=${sessionStatus.authenticated}`);
-          }
-        }
-        appendDebugLog(
-          `Resume session status (${reason}). authenticated=${sessionStatus.authenticated} configured=${sessionStatus.configured}`
-        );
-        if (!sessionStatus.authenticated) {
-          const disconnectMessage = sessionStatus.sessionExpired
-            ? AUTH_SESSION_EXPIRED_MESSAGE
-            : sessionStatus.configured
-              ? AUTH_DISCONNECTED_MESSAGE
-              : AUTH_CONFIG_MISSING_MESSAGE;
-          showConnectPanelWithDebug(disconnectMessage, sessionStatus.configured);
-          return;
-        }
-        initialSessionStatus = sessionStatus;
-        authExpiredHandled = false;
-        authUI.showConnectedState(sessionStatus);
-        try {
-          await createSmartThingsClient(true);
-          appendDebugLog(`SmartThings client refreshed (${reason}).`);
-        } catch (err) {
-          appendDebugLog(`SmartThings client refresh failed (${reason}): ${getErrorMessage(err)}`, true);
-        }
+        await createSmartThingsClient(true);
+        appendDebugLog(`SmartThings client refreshed (${reason}).`);
       } catch (err) {
-        appendDebugLog(`Resume session status failed (${reason}): ${getErrorMessage(err)}`, true);
+        appendDebugLog(`SmartThings client refresh failed (${reason}): ${getErrorMessage(err)}`, true);
       }
-
-      const synced = await syncGlassesAfterResume(reason);
-      appendDebugLog(
-        synced ? `Glasses sync complete (${reason}).` : `Glasses sync failed (${reason}).`,
-        !synced
-      );
-    })().finally(() => {
-      resumeSyncPromise = null;
-    });
-
-    resumeSyncPromise = task;
-    return task;
-  }
-
-  const visibilityHandler = () => {
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-      appendDebugLog('[Visibility] App hidden.');
-      invalidateSmartThingsClient('hidden');
-      void releaseWakeLock('hidden');
-      return;
+    } catch (err) {
+      appendDebugLog(`Resume session status failed (${reason}): ${getErrorMessage(err)}`, true);
     }
-    appendDebugLog('[Visibility] App visible — resuming.');
-    void requestWakeLock('visibilitychange');
-    void resumeBridgeSession('visibilitychange');
-  };
-  const pageshowHandler = () => {
-    void requestWakeLock('pageshow');
-    void resumeBridgeSession('pageshow');
-  };
-  const focusHandler = () => {
-    void requestWakeLock('focus');
-    void resumeBridgeSession('focus');
-  };
-  const onlineHandler = () => {
-    void requestWakeLock('online');
-    void resumeBridgeSession('online');
-  };
 
-  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-    document.addEventListener('visibilitychange', visibilityHandler);
+    const synced = await syncGlassesAfterResume(reason);
+    appendDebugLog(
+      synced ? `Glasses sync complete (${reason}).` : `Glasses sync failed (${reason}).`,
+      !synced
+    );
   }
+
+  // Coalesce the four foreground/background triggers through a single
+  // trailing-debounced scheduler. Client invalidation is now deferred behind
+  // a grace period (a brief flap no longer throws away the SmartThings
+  // client → no extra token round trip / sluggish first command).
+  const resumeScheduler = createResumeScheduler({
+    now: Date.now,
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    isHidden: () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
+    runResume,
+    invalidateClient: invalidateSmartThingsClient,
+    log: (m) => appendDebugLog(m),
+  });
+  const disposeResumeLifecycle = installResumeLifecycle(resumeScheduler, {
+    onVisibleWake: (r) => {
+      appendDebugLog(`[Visibility] App visible — ${r}.`);
+      void requestWakeLock(r);
+    },
+    onHiddenWake: (r) => {
+      appendDebugLog('[Visibility] App hidden.');
+      void releaseWakeLock(r);
+    },
+  });
+
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-    window.addEventListener('pageshow', pageshowHandler);
-    window.addEventListener('focus', focusHandler);
-    window.addEventListener('online', onlineHandler);
     window.addEventListener('beforeunload', () => {
       window.removeEventListener(SMARTTHINGS_DEBUG_EVENT, relayDebugHandler as EventListener);
       void releaseWakeLock('beforeunload');
-      if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
-        document.removeEventListener('visibilitychange', visibilityHandler);
-      }
-      window.removeEventListener('pageshow', pageshowHandler);
-      window.removeEventListener('focus', focusHandler);
-      window.removeEventListener('online', onlineHandler);
+      disposeResumeLifecycle();
     });
   }
 
