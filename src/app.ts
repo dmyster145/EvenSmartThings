@@ -81,6 +81,7 @@ import {
   writeCachedSessionStatus,
   writeStoredSessionToken,
   SMARTTHINGS_DEBUG_EVENT,
+  emitSmartThingsDebug,
   startSmartThingsConnect,
   type SmartThingsBatchRelayResult,
   type SessionStatus,
@@ -753,6 +754,15 @@ async function runExecuteScene(
   try {
     const result = await executeSceneViaServer(scene.sceneId);
     const status = result?.status;
+    // Dump the EXACT scene-execute payload so we can see whether SmartThings
+    // ever returns a per-device breakdown for this account/scene (the ! verdict
+    // is only reachable when result.results has mixed FAILED/non-FAILED rows).
+    try {
+      emitSmartThingsDebug(
+        `Scene raw response: sceneId=${scene.sceneId} payload=${JSON.stringify(result).slice(0, 600)}`,
+        true
+      );
+    } catch { /* JSON.stringify guard */ }
     // ✓ all succeed · ! some succeed & some error · ✗ all error / single error.
     const verdict = classifySceneResult(result);
     const success = verdict === 'success';
@@ -762,6 +772,16 @@ async function runExecuteScene(
     store.dispatch({ type: 'EXECUTE_END', success, errorMessage: success ? undefined : (status ?? verdict) });
   } catch (err) {
     const message = getErrorMessage(err);
+    const httpStatus = (err as { status?: number } | undefined)?.status;
+    const errPayload = (err as { payload?: unknown } | undefined)?.payload;
+    try {
+      emitSmartThingsDebug(
+        `Scene raw error: sceneId=${scene.sceneId} httpStatus=${httpStatus ?? 'n/a'} message=${message} payload=${
+          errPayload === undefined ? 'n/a' : JSON.stringify(errPayload).slice(0, 600)
+        }`,
+        true
+      );
+    } catch { /* JSON.stringify guard */ }
     console.warn(`[SmartThingsControls] Scene command failed. sceneId=${scene.sceneId} error=${message}`);
     store.dispatch({ type: 'EXECUTE_END', success: false, errorMessage: message });
     await showConfirmation('failure');

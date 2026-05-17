@@ -142,9 +142,9 @@ type DeviceCommandPayload = {
   arguments?: unknown[];
 };
 
-type HttpError = Error & { status?: number };
+type HttpError = Error & { status?: number; payload?: unknown };
 
-function emitSmartThingsDebug(message: string, reveal = false): void {
+export function emitSmartThingsDebug(message: string, reveal = false): void {
   console.log(`[SmartThingsControls][Relay] ${message}`);
   if (typeof window.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return;
   window.dispatchEvent(
@@ -311,12 +311,21 @@ async function fetchRelayOnce<T>(
       !response.ok
     );
     if (!response.ok) {
+      // Surface the full SmartThings error body (capped) — for scenes this is
+      // the only place a per-device breakdown could appear, so we must see it.
+      try {
+        emitSmartThingsDebug(
+          `Relay fetch error-body: ${summary} status=${response.status} payload=${JSON.stringify(payload).slice(0, 600)}`,
+          true
+        );
+      } catch { /* JSON.stringify guard */ }
       const message =
         typeof (payload as { error?: unknown }).error === 'string'
           ? String((payload as { error: string }).error)
           : `Request failed with status ${response.status}`;
       const err = new Error(message) as HttpError;
       err.status = response.status;
+      err.payload = payload;
       throw err;
     }
     return payload as T;
