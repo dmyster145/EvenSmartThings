@@ -222,9 +222,9 @@ function sceneNamesForListView(state: AppState): string[] {
   const scenes = getOrderedScenes(state);
   const { listPageIndex = 0, status } = state;
   if (scenes.length === 0) {
-    if (status === 'loading') return [];
+    if (status === 'loading') return [LABEL_BACK, 'Loading scenes…'];
     if (state.authStatus === 'expired') return [AUTH_EXPIRED_LIST_LABEL];
-    return ['No scenes'];
+    return [LABEL_BACK, 'No scenes'];
   }
 
   const firstPageSlots = scenes.length <= SCENES_PER_PAGE ? SCENES_PER_PAGE : SCENES_PER_PAGE - 1;

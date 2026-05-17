@@ -149,15 +149,23 @@ export function getOrderedFavorites(state: AppState): FavoriteItem[] {
     byKey.forEach((f) => ordered.push(f));
     items = ordered;
   }
+  // While the underlying scene/device lists haven't loaded yet, a favorite
+  // can't resolve its real name. Show "Loading…" instead of the generic
+  // "Scene"/"Device" so the user sees an honest in-progress state rather
+  // than a list that looks broken for ~10–20s on a backgrounded launch.
+  const scenesLoading = state.scenes.length === 0 && state.status === 'loading';
+  const devicesLoading = state.allDevices.length === 0 && state.devices.length === 0;
   const result: FavoriteItem[] = [];
   for (const { type, id } of items) {
     if (type === 'scene') {
       const scene = scenesById.get(id);
-      const displayName = getDisplayName(state, 'scene', id, scene?.sceneName ?? 'Scene');
+      const fallback = scene?.sceneName ?? (scenesLoading ? 'Loading…' : 'Scene');
+      const displayName = getDisplayName(state, 'scene', id, fallback);
       result.push({ type: 'scene', id, displayName, scene: scene ?? undefined });
     } else {
       const device = devicesById.get(id);
-      const displayName = getDisplayName(state, 'device', id, device?.deviceName ?? 'Device');
+      const fallback = device?.deviceName ?? (devicesLoading ? 'Loading…' : 'Device');
+      const displayName = getDisplayName(state, 'device', id, fallback);
       result.push({ type: 'device', id, displayName, device });
     }
   }

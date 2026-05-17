@@ -1183,22 +1183,32 @@ export async function initApp(): Promise<void> {
 
     const cachedSession = readCachedSessionStatus();
     const restoredToken = readStoredSessionToken();
+    // Any of these means "this user has authenticated before" — a bearer
+    // token, a URL session token from an OAuth callback, or a persisted
+    // pending-auth id. WebView localStorage is wiped between launches on the
+    // device, so the bearer token often isn't readable on cold start even
+    // for long-time users; the pending-auth id (restored from Even bridge
+    // persistent storage) is the surviving signal.
+    const hasCredentialSignal = !!restoredToken || !!urlSessionToken || !!pendingId;
     if (cachedSession) {
       // Use cached session to show UI immediately; verify in background.
       initialSessionStatus = cachedSession;
       usedCachedSession = true;
       appendDebugLog('Session check: using cached session status (background verify pending)');
-    } else if (restoredToken) {
-      // We have a bearer token restored from Even bridge persistent storage.
-      // Don't block the entire startup on the /api/session network verify —
-      // when the phone is backgrounded (app opened from glasses, screen off)
-      // that fetch can stall 20–30s, delaying scenes/rooms/render. Proceed
-      // optimistically and verify in the background (same pattern as the
-      // cached-session path). A 401 on any subsequent SmartThings call still
-      // routes through handleTerminalAuthFailure.
+    } else if (hasCredentialSignal) {
+      // Don't block the entire startup on the /api/session network verify.
+      // When the phone is backgrounded (app opened from glasses, screen off)
+      // that fetch stalls ~10s, and scenes/rooms only start AFTER it — so
+      // scenes don't land for ~22s and favorites show "Scene/Scene" the
+      // whole time. Proceed optimistically and verify in the background
+      // (same pattern as the cached-session path). A 401 on any subsequent
+      // SmartThings call still routes through handleTerminalAuthFailure →
+      // connect panel.
       initialSessionStatus = { authenticated: true, configured: true };
       usedCachedSession = true;
-      appendDebugLog('Session check: optimistic (restored bearer token; background verify pending)');
+      appendDebugLog(
+        `Session check: optimistic (credential signal: token=${!!restoredToken} urlToken=${!!urlSessionToken} pendingId=${!!pendingId}; background verify pending)`
+      );
     } else {
       initialSessionStatus = await getSessionStatus();
       appendDebugLog(`Session check: authenticated=${initialSessionStatus.authenticated} configured=${initialSessionStatus.configured}`);
@@ -1229,10 +1239,26 @@ export async function initApp(): Promise<void> {
   } catch (err) {
     console.warn('[SmartThingsControls] getSessionStatus error:', err);
     appendDebugLog(`Session status failed: ${getErrorMessage(err)}`);
-    void hub.updatePage(composeTextFallbackPage('SmartThings\n\nCould not reach server.\nOpen the companion on your phone.\n\nDouble-tap to exit.'));
-    showPanel(AUTH_RETURN_ID);
-    installExitOnlyEventHandler('server-unreachable');
-    return;
+    // Network/timeout failure here is almost always the phone being
+    // backgrounded when the app is opened from the glasses (the /api/session
+    // fetch is throttled and times out), NOT an actually-broken session. If
+    // we have ANY credential, don't dead-end to "could not reach server" —
+    // proceed optimistically and let the data loaders + watchdog recover. A
+    // genuine 401 on a later SmartThings call still routes through
+    // handleTerminalAuthFailure → connect panel.
+    let pendingIdOnFail: string | null = null;
+    try { pendingIdOnFail = localStorage.getItem('smartthings_controls_pending_auth'); } catch { /* ignore */ }
+    const hasCredential = !!readStoredSessionToken() || !!pendingIdOnFail || !!urlSessionToken;
+    if (hasCredential) {
+      appendDebugLog('Session check failed but credential present — proceeding optimistically.');
+      initialSessionStatus = { authenticated: true, configured: true };
+      usedCachedSession = true;
+    } else {
+      void hub.updatePage(composeTextFallbackPage('SmartThings\n\nCould not reach server.\nOpen the companion on your phone.\n\nDouble-tap to exit.'));
+      showPanel(AUTH_RETURN_ID);
+      installExitOnlyEventHandler('server-unreachable');
+      return;
+    }
   }
 
   if (!initialSessionStatus.authenticated) {

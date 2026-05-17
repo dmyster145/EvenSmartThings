@@ -263,11 +263,15 @@ export async function disconnectSmartThings(): Promise<void> {
   clearCachedSessionStatus();
 }
 
-// Per-request timeout for the relay fetch. Vercel function cold starts can add
-// 1–3s of latency; 8s gives enough headroom while still failing fast on a stuck
-// connection. On timeout or transient failure (network error, 502/503/504) we
-// retry once before surfacing the error to the caller.
-const RELAY_REQUEST_TIMEOUT_MS = 8000;
+// Per-request timeout for the relay fetch. When the page is VISIBLE, 8s is
+// plenty (Vercel cold start ~1–3s) and we want to fail fast. When the page is
+// HIDDEN (app opened from the glasses, phone pocketed/screen-off), Android
+// heavily throttles WebView fetches — they're slow but DO complete. Aborting
+// at 8s there guarantees a wasted attempt + retry (~15s of "Scene" placeholders
+// before names appear). Give hidden requests a much longer cap so attempt 1
+// can actually finish.
+const RELAY_REQUEST_TIMEOUT_VISIBLE_MS = 8000;
+const RELAY_REQUEST_TIMEOUT_HIDDEN_MS = 25000;
 const RELAY_RETRY_DELAY_MS = 200;
 
 function isTransientStatus(status: number): boolean {
@@ -280,9 +284,11 @@ async function fetchRelayOnce<T>(
   attempt: number,
 ): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), RELAY_REQUEST_TIMEOUT_MS);
+  const hidden = getVisibilityState() === 'hidden';
+  const timeoutMs = hidden ? RELAY_REQUEST_TIMEOUT_HIDDEN_MS : RELAY_REQUEST_TIMEOUT_VISIBLE_MS;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   emitSmartThingsDebug(
-    `Relay fetch dispatch: requestId=${envelope.requestId} attempt=${attempt} ${summary} visibility=${getVisibilityState()}`
+    `Relay fetch dispatch: requestId=${envelope.requestId} attempt=${attempt} ${summary} visibility=${getVisibilityState()} timeoutMs=${timeoutMs}`
   );
   try {
     const response = await fetch(`${API_BASE}/api/smartthings/execute`, {
