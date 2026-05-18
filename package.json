@@ -1,6 +1,6 @@
 {
   "name": "smartthings-controls",
-  "version": "1.4.30",
+  "version": "1.4.32",
   "private": true,
   "type": "module",
   "engines": {

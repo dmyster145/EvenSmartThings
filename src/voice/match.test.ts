@@ -112,6 +112,47 @@ describe('@regression matchVoiceCommand', () => {
     expect(matchVoiceCommand('turn off the thingamajig', cat).type).toBe('none');
   });
 
+  it('keeps "room" as a name token so "family room" scenes win (Family Room: OFF bug)', () => {
+    // "room" must NOT be stripped as a command word, or "turn off family room
+    // lights" loses the token that separates "Family Room: OFF" from the
+    // generic "All lights: OFF" and the wrong scene fires.
+    const cat: VoiceCatalog = {
+      scenes: [
+        { id: 'allOff', name: 'All lights: OFF' },
+        { id: 'famOff', name: 'Family Room: OFF' },
+      ],
+      rooms: [{ id: 'fam', name: 'Family Room' }],
+      devices: [],
+    };
+    expect(matchVoiceCommand('turn off family room lights', cat)).toEqual({
+      type: 'scene', id: 'famOff', name: 'Family Room: OFF',
+    });
+    // Order in the catalog must not change the winner.
+    const cat2: VoiceCatalog = {
+      ...cat,
+      scenes: [
+        { id: 'famOff', name: 'Family Room: OFF' },
+        { id: 'allOff', name: 'All lights: OFF' },
+      ],
+    };
+    expect(matchVoiceCommand('turn off family room lights', cat2)).toEqual({
+      type: 'scene', id: 'famOff', name: 'Family Room: OFF',
+    });
+  });
+
+  it('room navigation still works via real verbs (open / go to), not "room"', () => {
+    const cat: VoiceCatalog = {
+      scenes: [], devices: [],
+      rooms: [{ id: 'r', name: 'Family Room' }],
+    };
+    expect(matchVoiceCommand('open family room', cat)).toEqual({
+      type: 'room', id: 'r', name: 'Family Room',
+    });
+    expect(matchVoiceCommand('go to family room', cat)).toEqual({
+      type: 'room', id: 'r', name: 'Family Room',
+    });
+  });
+
   it('a strong device match still wins for on/off when no scene fits', () => {
     const cat: VoiceCatalog = {
       scenes: [{ id: 's', name: 'Movie Night' }],
@@ -127,5 +168,16 @@ describe('@regression matchVoiceCommand', () => {
     expect(scoreName('movie night', 'Movie Night')).toBe(1);
     expect(scoreName('movie', 'Movie Night')).toBeLessThan(1);
     expect(scoreName('xyz', 'Movie Night')).toBeLessThan(0.5);
+  });
+
+  it('a shared DISTINCTIVE word beats a shared GENERIC word', () => {
+    // Even with "room" stripped, "off family lights" must score the
+    // family-specific scene above the catch-all (the only shared word with
+    // "All lights: OFF" is the generic "lights"/"off").
+    const fam = scoreName('off family lights', 'Family Room: OFF');
+    const all = scoreName('off family lights', 'All lights: OFF');
+    expect(fam).toBeGreaterThan(all);
+    // And a generic-only overlap stays weak (no mis-fire).
+    expect(scoreName('lab lights', 'Hallway Lights')).toBeLessThan(0.6);
   });
 });

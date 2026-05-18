@@ -20,13 +20,28 @@ export const ON_WORDS = new Set(['on', 'enable']);
 /** Words that mean "turn this device OFF". */
 export const OFF_WORDS = new Set(['off', 'disable', 'close', 'stop']);
 
-/** Words that mean "open this room's device list". */
-export const ROOM_WORDS = new Set(['room', 'rooms', 'go', 'goto', 'enter', 'show', 'open']);
+/** Verbs that mean "open this room's device list".
+ *  NOTE: the literal nouns "room"/"rooms" are deliberately NOT here — they
+ *  appear inside real names ("Family Room", "Living Room Lamp", "Family
+ *  Room: OFF"). Treating them as command words stripped the distinguishing
+ *  token (e.g. "family room lights" → "family lights") and mis-matched
+ *  "Family Room: OFF" against "All lights: OFF". Room navigation still
+ *  triggers on the actual verbs below. */
+export const ROOM_WORDS = new Set(['go', 'goto', 'enter', 'show', 'open']);
 
 /** Leading/utility words dropped before name matching. */
 export const FILLER_WORDS = new Set([
   'the', 'a', 'an', 'please', 'hey', 'ok', 'okay', 'my', 'to', 'in', 'and',
   'turn', 'switch', 'um', 'uh', 'now', 'lets', 'let', 'us',
+]);
+
+/** Common, low-distinctiveness words in automation names ("Kitchen Lights",
+ *  "All Lamps", "Family Room"). Down-weighted in name scoring so a shared
+ *  *distinctive* word (e.g. "family") outweighs a shared *generic* one
+ *  (e.g. "lights") — "family … off" should pick "Family Room: OFF", not the
+ *  catch-all "All lights: OFF". (Not stripped — only weighted.) */
+export const GENERIC_NAME_TOKENS = new Set([
+  'light', 'lights', 'lamp', 'lamps', 'all', 'everything', 'the', 'a', 'an',
 ]);
 
 /** Digit-word → digit, for names like "Scene 2" / "Bedroom 3". */

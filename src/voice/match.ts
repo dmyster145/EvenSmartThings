@@ -15,6 +15,7 @@ import {
   OFF_WORDS,
   ROOM_WORDS,
   FILLER_WORDS,
+  GENERIC_NAME_TOKENS,
   normalizeText,
 } from './grammar';
 
@@ -57,6 +58,10 @@ function levenshtein(a: string, b: string): number {
   return prev[b.length]!;
 }
 
+function tokenWeight(t: string): number {
+  return GENERIC_NAME_TOKENS.has(t) ? 0.35 : 1;
+}
+
 /** 0–1 similarity between a spoken name phrase and a catalog entry name. */
 export function scoreName(queryPhrase: string, entryName: string): number {
   const q = normalizeText(queryPhrase);
@@ -64,21 +69,33 @@ export function scoreName(queryPhrase: string, entryName: string): number {
   if (!q || !n) return 0;
   if (q === n) return 1;
 
-  const qTokens = q.split(' ');
-  const nTokens = n.split(' ');
-  const qSet = new Set(qTokens);
-  const shared = nTokens.filter((t) => qSet.has(t)).length;
-  // Fraction of the entry name's words that were spoken.
-  const coverage = shared / nTokens.length;
+  const qSet = new Set(q.split(' '));
+  const nSet = new Set(n.split(' '));
+  let qW = 0;
+  let nW = 0;
+  let interW = 0;
+  for (const t of qSet) qW += tokenWeight(t);
+  for (const t of nSet) {
+    const w = tokenWeight(t);
+    nW += w;
+    if (qSet.has(t)) interW += w;
+  }
+  // Weighted token-overlap F1: rewards sharing *distinctive* words, and
+  // penalizes BOTH missing name words (recall) and extra unexplained spoken
+  // words (precision). So "family … off" favors "Family Room: OFF" over the
+  // generic "All lights: OFF" even when only generic words also overlap.
+  const precision = qW > 0 ? interW / qW : 0;
+  const recall = nW > 0 ? interW / nW : 0;
+  const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
 
-  // Whole-name substring (e.g. "movie night" inside "run movie night").
+  // Whole-phrase containment (e.g. "movie night" inside "run movie night").
   const substring = q.includes(n) || n.includes(q) ? 0.85 : 0;
 
   // Edit-distance ratio as a fallback for slurred / mis-decoded words.
   const dist = levenshtein(q, n);
   const editRatio = 1 - dist / Math.max(q.length, n.length);
 
-  return Math.max(coverage, substring, editRatio * 0.9);
+  return Math.max(f1, substring, editRatio * 0.9);
 }
 
 interface Scored { id: string; name: string; score: number }
