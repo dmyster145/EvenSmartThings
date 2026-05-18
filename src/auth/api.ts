@@ -315,7 +315,7 @@ async function fetchRelayOnce<T>(
       // the only place a per-device breakdown could appear, so we must see it.
       try {
         emitSmartThingsDebug(
-          `Relay fetch error-body: ${summary} status=${response.status} payload=${JSON.stringify(payload).slice(0, 600)}`,
+          `Relay fetch error-body: ${summary} status=${response.status} payload=${JSON.stringify(payload).slice(0, 4000)}`,
           true
         );
       } catch { /* JSON.stringify guard */ }

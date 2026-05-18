@@ -451,6 +451,22 @@ export async function handleSmartThingsExecuteRequest(request, response) {
       const result = await smartThingsApiRequest(session, `/scenes/${encodeURIComponent(sceneId)}/execute`, {
         method: 'POST',
       });
+      // Ground-truth dump of the EXACT SmartThings scene-execute response.
+      // This is the only place a per-device breakdown could appear; the client
+      // can only show ! (partial) if this body has mixed FAILED/non-FAILED rows.
+      let scenePayloadDump;
+      try {
+        scenePayloadDump = JSON.stringify(result.payload);
+      } catch {
+        scenePayloadDump = '<unstringifiable>';
+      }
+      logRelay(
+        'scene-raw',
+        relayContext,
+        `sceneId=${sceneId} httpStatus=${result.status} ok=${result.ok}`
+          + ` keys=${result.payload && typeof result.payload === 'object' ? Object.keys(result.payload).join(',') : 'n/a'}`
+          + ` body=${String(scenePayloadDump).slice(0, 2000)}`
+      );
       if (!result.ok) {
         logRelay('response', relayContext, `status=${result.status} ok=false`);
         return json(response, result.status, {

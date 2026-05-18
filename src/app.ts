@@ -759,7 +759,9 @@ async function runExecuteScene(
     // is only reachable when result.results has mixed FAILED/non-FAILED rows).
     try {
       emitSmartThingsDebug(
-        `Scene raw response: sceneId=${scene.sceneId} payload=${JSON.stringify(result).slice(0, 600)}`,
+        `Scene raw response: sceneId=${scene.sceneId} keys=${
+          result && typeof result === 'object' ? Object.keys(result).join(',') : 'n/a'
+        } payload=${JSON.stringify(result).slice(0, 4000)}`,
         true
       );
     } catch { /* JSON.stringify guard */ }
@@ -777,7 +779,7 @@ async function runExecuteScene(
     try {
       emitSmartThingsDebug(
         `Scene raw error: sceneId=${scene.sceneId} httpStatus=${httpStatus ?? 'n/a'} message=${message} payload=${
-          errPayload === undefined ? 'n/a' : JSON.stringify(errPayload).slice(0, 600)
+          errPayload === undefined ? 'n/a' : JSON.stringify(errPayload).slice(0, 4000)
         }`,
         true
       );
