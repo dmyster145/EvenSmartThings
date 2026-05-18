@@ -114,6 +114,7 @@
           <li><a href="#scenes">Scenes</a></li>
           <li><a href="#devices-rooms">Devices &amp; Rooms</a></li>
           <li><a href="#favorites">Favorites</a></li>
+          <li><a href="#voice">Voice (Tap to speak)</a></li>
           <li><a href="#stats">Stats &amp; Visibility</a></li>
           <li><a href="#renames">Custom names</a></li>
           <li><a href="#controls">Controls</a></li>
@@ -130,7 +131,7 @@
             <h3>Setup</h3>
             <p>Open this app in the Even App on your phone and tap <strong>Connect SmartThings</strong>. The app uses SmartThings OAuth instead of a manual token field. After you authorize, the backend keeps the SmartThings refresh token and renews short-lived access tokens as needed. To reconnect or disconnect later, scroll to the <strong>SmartThings connection</strong> section in the configuration panel (above Documentation).</p>
             <h3>On the glasses</h3>
-            <p>You'll see a main menu: <strong>Scenes</strong>, <strong>Devices</strong>, and <strong>Favorites</strong> (if you've added any). In the configuration panel you can set the <strong>default launch view</strong>, Home screen order, list order for each list, favorites, stats visibility (toggles), and custom names. Scroll to choose, tap to open or run.</p>
+            <p>You'll see a main menu: <strong>Scenes</strong>, <strong>Devices</strong>, <strong>Favorites</strong> (if you've added any), and <strong>Tap to speak</strong> for hands-free voice control. In the configuration panel you can set the <strong>default launch view</strong>, Home screen order (including where <strong>Tap to speak</strong> appears), list order for each list, favorites, stats visibility (toggles), and custom names. Scroll to choose, tap to open or run. Scrolling past the top or bottom of any list wraps around to the other end.</p>
           </div>
         </details>
       </section>
@@ -173,6 +174,31 @@
         </details>
       </section>
 
+      <section class="section" id="voice">
+        <details>
+          <summary>Voice (Tap to speak)</summary>
+          <div class="section-content">
+            <h3>How it works</h3>
+            <p><strong>Tap to speak</strong> is a main-menu item that lets you run scenes, switch devices, or open a room by voice. Tap it once and start speaking right away — there is no extra menu or second tap. Speech recognition runs <strong>entirely on the glasses</strong> (offline); nothing is sent to the cloud.</p>
+            <h3>Using it</h3>
+            <ol>
+              <li>From the main menu, tap <strong>Tap to speak</strong>. The right panel shows <em>Listening…</em> and then what it heard.</li>
+              <li>Say a command, for example: <em>"Run Movie Night"</em>, <em>"Turn off kitchen lights"</em>, <em>"Lab lights off"</em>, or <em>"Open garage"</em>.</li>
+              <li>The matched command is shown for confirmation, e.g. <em>Run "Movie Night"? Tap to confirm · double-tap cancel</em>.</li>
+              <li><strong>Tap once</strong> to confirm and run it. <strong>Double-tap</strong> to cancel.</li>
+            </ol>
+            <h3>Phrasing</h3>
+            <ul>
+              <li><strong>Scenes:</strong> "run", "activate", or just the scene name. A scene named for an action (e.g. <em>Lab: OFF</em>) is matched even when you say "lab lights off".</li>
+              <li><strong>Devices:</strong> "turn on/off &lt;device&gt;"; a bare device name turns it on.</li>
+              <li><strong>Rooms:</strong> "open &lt;room&gt;" or "go to &lt;room&gt;".</li>
+              <li>Filler words are ignored and minor mis-hearing is tolerated. If nothing is close enough it shows <em>No match — tap to try again</em> (no confirmation needed); just tap to retry.</li>
+            </ul>
+            <div class="tip"><strong>Tip:</strong> A command is never run until you confirm it with a tap, so a misheard phrase can't trigger the wrong scene or device. Use the configuration panel's <strong>Home screen</strong> order to move <strong>Tap to speak</strong> to the top for fastest access.</div>
+          </div>
+        </details>
+      </section>
+
       <section class="section" id="stats">
         <details>
           <summary>Stats &amp; Visibility</summary>
@@ -197,12 +223,12 @@
           <div class="section-content">
             <p>Four gestures on your G2 touchpad:</p>
             <div class="gesture-grid">
-              <div class="gesture-card"><strong>Scroll</strong> Swipe up or down to move the highlight.</div>
-              <div class="gesture-card"><strong>Tap</strong> Confirm: run a scene, open a device, or choose an option.</div>
-              <div class="gesture-card"><strong>Double Tap</strong> Go back one level.</div>
+              <div class="gesture-card"><strong>Scroll</strong> Swipe up or down to move the highlight. Past the top or bottom it wraps around to the other end.</div>
+              <div class="gesture-card"><strong>Tap</strong> Confirm: run a scene, open a device, choose an option, or confirm a voice command.</div>
+              <div class="gesture-card"><strong>Double Tap</strong> Go back one level — or cancel a pending voice command.</div>
               <div class="gesture-card"><strong>Triple Tap</strong> Jump to the last page of the list (when the list has multiple pages).</div>
             </div>
-            <div class="tip"><strong>Tip:</strong> Double-tap from the main menu to go back to the previous view if you navigated from another app.</div>
+            <div class="tip"><strong>Tip:</strong> Double-tap from the main menu to go back to the previous view if you navigated from another app. After a voice command is recognized, a single tap confirms it and a double-tap cancels it.</div>
           </div>
         </details>
       </section>
@@ -215,6 +241,8 @@
               <li>List order, favorites, stats toggles, and custom names are set in the configuration panel; changes apply on the glasses immediately.</li>
               <li>Favorites can include scenes and devices; tap a scene to run it, a device to open its controls. <strong>Done</strong> closes the picker.</li>
               <li>Custom names apply only in this app; SmartThings and automations keep the original names. List format: <em>SmartThings name &gt; your name</em>.</li>
+              <li><strong>Tap to speak</strong> runs offline on the glasses and always asks you to confirm with a tap before acting — a misheard phrase never fires the wrong command. Reorder it on the Home screen in the configuration panel.</li>
+              <li>Scrolling wraps around at the ends of every list, so the last item is one swipe up from the first.</li>
             </ul>
           </div>
         </details>

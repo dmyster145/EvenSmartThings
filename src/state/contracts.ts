@@ -86,6 +86,14 @@ export interface DeviceStats {
 
 export type AppStatus = 'loading' | 'ready' | 'executing' | 'done' | 'error';
 
+/** Transient UI state for the voice-input screen. */
+export interface VoiceUiState {
+  /** True while the mic is open and we're capturing speech. */
+  listening: boolean;
+  /** Status line shown on the voice screen (e.g. "Listening…", "Heard: …"). */
+  status: string | null;
+}
+
 export type ListView =
   | 'main'
   | 'scenes'
@@ -95,7 +103,8 @@ export type ListView =
   | 'device-dim'
   | 'room-all-detail'
   | 'room-all-dim'
-  | 'favorites';
+  | 'favorites'
+  | 'voice';
 
 /** List order preference per list type. */
 export type ListOrderPreference = 'alphabetical' | 'reverse' | 'custom';
@@ -104,7 +113,7 @@ export type ListOrderPreference = 'alphabetical' | 'reverse' | 'custom';
 export type GlassesMenuDefault = 'resume' | 'main' | 'scenes' | 'devices' | 'favorites';
 
 /** Home screen menu items (order determines main menu). */
-export type MainMenuItem = 'scenes' | 'devices' | 'favorites';
+export type MainMenuItem = 'scenes' | 'devices' | 'favorites' | 'voice';
 
 /** Custom order: ordered IDs per list type. When preference is 'custom', use this order. */
 export interface ListOrderCustomIds {
@@ -148,7 +157,7 @@ export interface Preferences {
   schemaVersion: number;
 }
 
-export const PREFERENCES_SCHEMA_VERSION = 2;
+export const PREFERENCES_SCHEMA_VERSION = 3;
 
 export const DEFAULT_STATS_VISIBILITY: StatsVisibility = {
   enabled: true,
@@ -177,7 +186,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
     rooms: [],
     devices: [],
     favorites: [],
-    main: ['scenes', 'devices', 'favorites'],
+    main: ['scenes', 'devices', 'favorites', 'voice'],
   },
   favoritesIds: [],
   statsVisibility: DEFAULT_STATS_VISIBILITY,
@@ -220,6 +229,8 @@ export interface AppState {
    *  the "Refreshing…" hint in the stats box instead of cluttering the list
    *  with placeholders. */
   listsRefreshing: boolean;
+  /** Transient voice-input screen state (listening flag + status line). */
+  voice: VoiceUiState;
 }
 
 export type Action =
@@ -242,6 +253,7 @@ export type Action =
   | { type: 'ALL_DEVICES_LOADED'; devices: DeviceEntry[] }
   | { type: 'LISTS_REFRESH_START' }
   | { type: 'LISTS_REFRESH_END' }
+  | { type: 'VOICE_UI'; listening?: boolean; status?: string | null }
   | { type: 'EXECUTE_START' }
   | { type: 'EXECUTE_END'; success: boolean; errorMessage?: string }
   | { type: 'STATS_GLOBAL'; stats: GlobalStats }

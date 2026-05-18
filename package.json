@@ -1,6 +1,6 @@
 {
   "name": "smartthings-controls",
-  "version": "1.4.23",
+  "version": "1.4.30",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,6 +12,7 @@
     "dev:server": "node --watch server/index.js",
     "server": "node server/index.js",
     "prebuild": "node scripts/sync-app-version.mjs",
+    "fetch:voice-model": "node scripts/fetch-vosk-model.cjs",
     "build": "tsc -b && vite build",
     "pack": "npm run build && npx @evenrealities/evenhub-cli@0.1.13 pack app.json dist/ && mv out.ehpk smartthings-controls.ehpk",
     "preview": "vite preview",
@@ -35,7 +36,8 @@
     "react-router": "^7.15.1",
     "redis": "^5.12.1",
     "tailwind-merge": "^3.6.0",
-    "util": "^0.12.5"
+    "util": "^0.12.5",
+    "vosk-browser": "^0.0.8"
   },
   "devDependencies": {
     "@evenrealities/evenhub-simulator": "^0.7.3",

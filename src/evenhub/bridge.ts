@@ -45,6 +45,7 @@ const BLE_TIMEOUT_PAGE_REBUILD_MS = 8000;
 const BLE_TIMEOUT_TEXT_UPGRADE_MS = 5000;
 const BLE_TIMEOUT_IMAGE_UPDATE_MS = 12000;
 const BLE_TIMEOUT_SHUTDOWN_MS = 3000;
+const BLE_TIMEOUT_AUDIO_CTRL_MS = 4000;
 
 function withBleTimeout<T>(p: Promise<T>, ms: number, opName: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -502,6 +503,30 @@ export class EvenHubBridge {
     } catch (err) {
       console.error('[EvenHubBridge] Event subscription error:', err);
       this.unsubscribeEvents = null;
+    }
+  }
+
+  // ── Microphone (voice input) ──────────────────────────────────────────────
+
+  /**
+   * Open (`true`) or close (`false`) the glasses microphone. PCM then arrives
+   * on the normal EvenHub event stream as `event.audioEvent.audioPcm` (16 kHz
+   * mono LE int16). A single toggle — no serialization needed; direct call
+   * with a short timeout so a flaky link fails fast and the caller can recover
+   * (the voice controller force-closes the mic on every exit path regardless).
+   * Returns false if there is no bridge or the call times out/throws.
+   */
+  async audioControl(isOpen: boolean): Promise<boolean> {
+    if (!this.bridge) return false;
+    try {
+      return await withBleTimeout(
+        this.bridge.audioControl(isOpen),
+        BLE_TIMEOUT_AUDIO_CTRL_MS,
+        `audioControl(${isOpen})`,
+      );
+    } catch (err) {
+      console.warn('[EvenHubBridge] audioControl error:', err);
+      return false;
     }
   }
 

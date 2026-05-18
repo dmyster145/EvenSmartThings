@@ -2,7 +2,7 @@
   "package_id": "io.github.dmyster145.smartthingscontrols",
   "edition": "202601",
   "name": "SmartThings Control",
-  "version": "1.4.23",
+  "version": "1.4.30",
   "min_app_version": "2.0.0",
   "min_sdk_version": "0.0.10",
   "tagline": "SmartThings for your G2 glasses",
@@ -21,6 +21,10 @@
         "https://evenrealities.com",
         "https://react.dev"
       ]
+    },
+    {
+      "name": "g2-microphone",
+      "desc": "Captures voice commands on the glasses microphone to select and run scenes, devices, and rooms by name. Speech is transcribed fully on-device (offline, no network)."
     }
   ],
   "supported_languages": [

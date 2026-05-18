@@ -27,10 +27,11 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 - **Scenes** — Run any scene with one tap.
 - **Devices** — Browse by room; tap to turn on/off or adjust dim level.
 - **Favorites** — One list mixing scenes and devices; you choose what’s in it and the order.
+- **Voice (Tap to speak)** — A main-menu item that runs scenes, switches devices, or opens rooms by voice. Recognition is fully offline on the glasses; every recognized command requires a single tap to confirm (double-tap cancels) so a misheard phrase never fires.
 - **Rooms** — Navigate by room, then control devices or run room actions.
 - **Launch defaults** — Choose what opens first whenever the app launches: resume the last useful screen, open the main screen, jump into Scenes, open Devices, or go straight to Favorites.
-- **Config panel** — Connect SmartThings, set the app-launch default view, set list order (alphabetical, reverse, or custom), choose which stats show on the glasses, manage favorites, and set custom display names in the Even App.
-- **Gesture navigation** — Single tap to select, double tap to go back, triple tap to jump to the last page.
+- **Config panel** — Connect SmartThings, set the app-launch default view, set list order (alphabetical, reverse, or custom — including where **Tap to speak** sits in the Home screen order), choose which stats show on the glasses, manage favorites, and set custom display names in the Even App.
+- **Gesture navigation** — Single tap to select, double tap to go back, triple tap to jump to the last page; scrolling wraps around at the ends of every list.
 - **G2-native UI** — List on the left, confirmation and stats on the right; scroll and tap drive everything.
 
 ---
@@ -154,10 +155,11 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 
 ## Usage on the glasses
 
-- **Scroll** — Move the highlight in the list.
-- **Tap** — Run or open the selected action: run a scene, open a room/device, toggle on/off, or change dim level.
+- **Scroll** — Move the highlight in the list; past the top/bottom it wraps to the other end.
+- **Tap** — Run or open the selected action: run a scene, open a room/device, toggle on/off, change dim level, or confirm a recognized voice command.
+- **Tap to speak** — Select it on the main menu to start offline voice recognition immediately; status and the heard command show in the right panel. A single tap confirms the matched command; a double-tap cancels it.
 - **Page controls** — Highlight `← Previous` / `Next →` and tap to move between pages.
-- **Shortcuts** — Double tap to go back; triple tap to jump to the last page when available.
+- **Shortcuts** — Double tap to go back (or cancel a pending voice command); triple tap to jump to the last page when available.
 - The right side shows confirmation and stats (choose which stats in the config panel).
 
 ---
@@ -166,7 +168,7 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 
 Open the app in the Even App to configure:
 
-- **List order** — Home, Scenes, Rooms, Devices, Favorites: alphabetical, reverse, or custom (reorder with Up/Down).
+- **List order** — Home (Scenes, Devices, Favorites, **Tap to speak**), Scenes, Rooms, Devices, Favorites: alphabetical, reverse, or custom (reorder with Up/Down).
 - **Stats visibility** — Choose which stats show on the glasses (e.g. total devices, online/offline, type, on/off, brightness).
 - **Favorites** — Add scenes and devices to one “Favorites” list on the glasses.
 - **Custom names** — Override display names for scenes, rooms, or devices (this app only).

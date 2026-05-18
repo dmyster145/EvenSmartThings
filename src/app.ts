@@ -16,7 +16,8 @@ import type { SceneSummary } from '@smartthings/core-sdk/dist/endpoint/scenes';
 import type { Device } from '@smartthings/core-sdk/dist/endpoint/devices';
 import { createStore } from './state/store';
 import { buildInitialState } from './state/reducer';
-import type { AppState, SceneEntry, DeviceEntry, GlassesMenuDefault, ListOrderPreference } from './state/contracts';
+import type { AppState, SceneEntry, DeviceEntry, GlassesMenuDefault, ListOrderPreference, MainMenuItem } from './state/contracts';
+import { DEFAULT_PREFERENCES } from './state/contracts';
 import { mapEvenHubEvent } from './input/actions';
 import {
   composeStartupPage,
@@ -59,6 +60,7 @@ import {
   getOrderedFavorites,
   getDisplayName,
   getMainMenuOrderedViews,
+  getMainMenuOrderedItems,
   parseFavoriteCompositeId,
 } from './state/selectors';
 import { EvenHubBridge } from './evenhub/bridge';
@@ -107,6 +109,9 @@ import { createResumeScheduler } from './lifecycle/resume-scheduler';
 import { installResumeLifecycle } from './lifecycle/install-resume-lifecycle';
 import { hasCredentialSignal } from './auth/credential-signal';
 import { classifyTap } from './input/tap-dedup';
+import { createVoiceController } from './voice/controller';
+import { matchVoiceCommand, type VoiceCatalog } from './voice/match';
+import type { AudioPayload } from './voice/pcm';
 import { classifySceneResult } from './render/scene-result';
 import { LIST_CACHE_KEY, serializeListSnapshot, parseListSnapshot } from './state/list-cache';
 import { ImageRawDataUpdate, OsEventTypeList, StartUpPageCreateResult, type EvenHubEvent } from '@evenrealities/even_hub_sdk';
@@ -330,14 +335,23 @@ function setupConfigUI(
     const state = store.getState();
     const prefs = state.preferences;
     if (list === 'main') {
-      const order =
+      const labels: Record<MainMenuItem, string> = {
+        scenes: 'Scenes',
+        devices: 'Devices',
+        favorites: 'Favorites',
+        voice: 'Tap to speak',
+      };
+      const stored =
         prefs.listOrder.main === 'custom' && prefs.listOrderCustomIds.main.length > 0
           ? prefs.listOrderCustomIds.main
-          : (['scenes', 'devices', 'favorites'] as const);
-      return order.map((id) => ({
-        id,
-        displayName: id === 'scenes' ? 'Scenes' : id === 'devices' ? 'Devices' : 'Favorites',
-      }));
+          : DEFAULT_PREFERENCES.listOrderCustomIds.main;
+      // Drop unknowns and append any missing menu items (e.g. 'voice' added in
+      // a later schema) so the Home screen reorder list always stays complete.
+      const order = stored.filter((id) => id in labels);
+      for (const item of DEFAULT_PREFERENCES.listOrderCustomIds.main) {
+        if (!order.includes(item)) order.push(item);
+      }
+      return order.map((id) => ({ id, displayName: labels[id] }));
     }
     if (list === 'scenes') {
       return getOrderedScenes(state).map((s) => ({
@@ -499,7 +513,7 @@ function setupConfigUI(
         let customIds: string[] | undefined;
         if (value === 'custom' && prefs.listOrderCustomIds[list].length === 0) {
           const state = store.getState();
-          if (list === 'main') customIds = ['scenes', 'devices', 'favorites'];
+          if (list === 'main') customIds = [...DEFAULT_PREFERENCES.listOrderCustomIds.main];
           else if (list === 'scenes') customIds = getOrderedScenes(state).map((s) => s.sceneId);
           else if (list === 'rooms') customIds = getOrderedRooms(state).map((r) => r.roomId);
           else if (list === 'devices')
@@ -1544,6 +1558,10 @@ export async function initApp(): Promise<void> {
   let lastTapIndex = -1;
   let tapCount = 0;
   let commitTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  // A recognized voice command awaiting confirmation. While set, the next
+  // single tap executes it and a double tap aborts it (a wrong recognition
+  // must never fire automatically). Cleared on confirm/abort/new-listen.
+  let pendingVoiceCommand: { exec: () => void; label: string } | null = null;
   const recentListIndices: { index: number; time: number }[] = [];
   // Set as soon as any glasses event is processed. applyInitialLaunchPreference
   // checks this and skips overriding the user's navigation if they've already
@@ -2670,14 +2688,45 @@ export async function initApp(): Promise<void> {
     const listIndex = lastTapIndex;
     const lastListIndex = getLastListIndex(state);
 
+    // Voice confirmation gate: a recognized command is staged but not yet run.
+    // Single tap (anywhere) confirms + executes it; double-tap aborts. This
+    // takes precedence over all normal list/tap handling.
+    if (pendingVoiceCommand) {
+      const cmd = pendingVoiceCommand;
+      pendingVoiceCommand = null;
+      if (tapCount >= 2) {
+        setVoiceStatus('Cancelled — tap to speak');
+      } else {
+        cmd.exec();
+      }
+      lastTapIndex = -1;
+      tapCount = 0;
+      return;
+    }
+
     if (listView === 'main') {
       if (tapCount === 1) {
-        const views = getMainMenuOrderedViews(state);
-        const view = views[listIndex];
-        if (view) {
-          store.dispatch({ type: 'NAV_VIEW', view });
+        const items = getMainMenuOrderedItems(state);
+        const item = items[listIndex];
+        if (item === 'voice') {
+          // "Tap to speak" is an in-place action — do NOT navigate. Start (or
+          // cancel) listening; status + recognized speech render in the
+          // right-side stats box while staying on the main menu.
+          if (voiceController.isListening()) {
+            voiceController.cancel();
+          } else {
+            pendingVoiceCommand = null; // discard any stale staged command
+            voiceController.start();
+          }
           refreshPage();
-          if (view === 'rooms') void loadRooms();
+        } else if (item) {
+          const views = getMainMenuOrderedViews(state);
+          const view = views[listIndex];
+          if (view) {
+            store.dispatch({ type: 'NAV_VIEW', view });
+            refreshPage();
+            if (view === 'rooms') void loadRooms();
+          }
         }
       } else if (tapCount === 2) {
         // ER guidance: from the top-level menu, double-tap should surface the
@@ -2692,6 +2741,7 @@ export async function initApp(): Promise<void> {
       tapCount = 0;
       return;
     }
+
 
     const isPaginatedList =
       listView === 'scenes' ||
@@ -3094,7 +3144,14 @@ export async function initApp(): Promise<void> {
 
     const currentIndex = getNormalizedFocusedListIndex(state);
     const currentPosition = Math.max(0, selectableIndexes.indexOf(currentIndex));
-    const nextPosition = Math.max(0, Math.min(currentPosition + delta, selectableIndexes.length - 1));
+    const count = selectableIndexes.length;
+    // Scrolling past an edge wraps around (top↑ → bottom, bottom↓ → top) on
+    // every list, including sub-menus (the wrap traverses the Back/Prev/Next
+    // rows like any other selectable item).
+    const nextPosition =
+      count > 1
+        ? (((currentPosition + delta) % count) + count) % count
+        : Math.max(0, Math.min(currentPosition + delta, count - 1));
     const nextIndex = selectableIndexes[nextPosition] ?? currentIndex;
     if (nextIndex === currentIndex && nextIndex === state.focusedListIndex) return;
     store.dispatch({ type: 'TAP', selectedIndex: nextIndex });
@@ -3244,6 +3301,21 @@ export async function initApp(): Promise<void> {
     // launch-preference override so we don't snap them back to the default
     // view after they've already navigated.
     userHasInteracted = true;
+    // Voice PCM arrives on this same event stream. Route it straight to the
+    // recognizer (bypassing the input mapper) and never let it fall through.
+    const audioEvent = (event as { audioEvent?: { audioPcm?: unknown } }).audioEvent;
+    if (audioEvent && audioEvent.audioPcm != null) {
+      if (voiceController.isListening()) {
+        voiceController.feed(audioEvent.audioPcm as AudioPayload);
+      }
+      return;
+    }
+    // Any non-audio interaction while listening cancels the capture so a stray
+    // tap doesn't get processed and the mic closes promptly.
+    if (voiceController.isListening()) {
+      voiceController.cancel();
+      return;
+    }
     if (canUseTextGlassesLayout()) {
       handleTextModeEvent(event);
       return;
@@ -3434,6 +3506,105 @@ export async function initApp(): Promise<void> {
     invalidateClient: invalidateSmartThingsClient,
     log: (m) => appendDebugLog(m),
   });
+  // ── Voice input ────────────────────────────────────────────────────────────
+  // A "Voice" main-menu item opens a listening screen; the wearer speaks the
+  // name of a scene/device/room and we run/toggle/open it. STT is fully offline
+  // (bundled Vosk model). The mic is force-closed on every exit path.
+  function buildVoiceCatalog(): VoiceCatalog {
+    const state = store.getState();
+    const devices = state.allDevices.length > 0 ? state.allDevices : state.devices;
+    return {
+      scenes: getOrderedScenes(state).map((s) => ({
+        id: s.sceneId,
+        name: getDisplayName(state, 'scene', s.sceneId, s.sceneName),
+      })),
+      devices: devices.map((d) => ({
+        id: d.deviceId,
+        name: getDisplayName(state, 'device', d.deviceId, d.deviceName),
+      })),
+      rooms: getOrderedRooms(state).map((r) => ({
+        id: r.roomId,
+        name: getDisplayName(state, 'room', r.roomId, r.roomName),
+      })),
+    };
+  }
+
+  function setVoiceStatus(status: string | null): void {
+    store.dispatch({ type: 'VOICE_UI', status });
+    refreshPage();
+  }
+
+  function handleVoiceTranscript(text: string): void {
+    appendDebugLog(`Voice transcript: "${text}"`);
+    const match = matchVoiceCommand(text, buildVoiceCatalog());
+
+    // No match needs no confirmation — just tell the wearer to retry.
+    if (match.type === 'none') {
+      pendingVoiceCommand = null;
+      setVoiceStatus(match.reason || 'No match — tap to try again');
+      void showConfirmation('failure');
+      return;
+    }
+
+    // A match is staged, NOT executed: speech recognition is imperfect, so a
+    // real action (run scene / switch device / open room) requires an explicit
+    // tap to confirm. Double-tap aborts. (Handled in commitTap.)
+    let label: string;
+    let exec: () => void;
+    if (match.type === 'scene') {
+      const idx = getOrderedScenes(store.getState()).findIndex((s) => s.sceneId === match.id);
+      if (idx < 0) {
+        pendingVoiceCommand = null;
+        setVoiceStatus(`Scene not found: ${match.name}`);
+        return;
+      }
+      label = `Run “${match.name}”`;
+      exec = () => {
+        setVoiceStatus(`Running ${match.name}`);
+        void runExecuteScene(store, idx, showConfirmation);
+      };
+    } else if (match.type === 'device') {
+      const action = match.action.toUpperCase();
+      label = `${match.name} → ${action}`;
+      exec = () => {
+        setVoiceStatus(`${match.name} → ${action}`);
+        void runDeviceSwitch(match.id, match.action === 'on');
+      };
+    } else {
+      label = `Open “${match.name}”`;
+      exec = () => {
+        setVoiceStatus(`Opening ${match.name}`);
+        store.dispatch({ type: 'NAV_ROOM', roomId: match.id });
+        refreshPage();
+        void loadDevicesForRoom(match.id);
+      };
+    }
+    pendingVoiceCommand = { exec, label };
+    setVoiceStatus(`${label}? Tap to confirm · double-tap cancel`);
+  }
+
+  const voiceController = createVoiceController({
+    bridge: hub,
+    modelUrl: '/vosk/model.tar.gz',
+    isEligible: () => {
+      const s = store.getState();
+      // Voice is an in-place action on the main menu (no dedicated screen).
+      return s.listView === 'main' && s.status !== 'executing';
+    },
+    onListenStart: () => {
+      store.dispatch({ type: 'VOICE_UI', listening: true, status: 'Listening…' });
+      refreshPage();
+    },
+    onListenEnd: () => {
+      store.dispatch({ type: 'VOICE_UI', listening: false });
+      refreshPage();
+    },
+    onStatus: (message) => setVoiceStatus(message),
+    onTranscript: handleVoiceTranscript,
+  });
+  // Preload the offline model off the critical path so the first tap is instant.
+  voiceController.warm();
+
   const disposeResumeLifecycle = installResumeLifecycle(resumeScheduler, {
     onVisibleWake: (r) => {
       appendDebugLog(`[Visibility] App visible — ${r}.`);
@@ -3441,6 +3612,8 @@ export async function initApp(): Promise<void> {
     },
     onHiddenWake: (r) => {
       appendDebugLog('[Visibility] App hidden.');
+      // Never let the glasses mic survive backgrounding.
+      voiceController.cancel();
       void releaseWakeLock(r);
     },
   });
@@ -3449,7 +3622,12 @@ export async function initApp(): Promise<void> {
     window.addEventListener('beforeunload', () => {
       window.removeEventListener(SMARTTHINGS_DEBUG_EVENT, relayDebugHandler as EventListener);
       void releaseWakeLock('beforeunload');
+      voiceController.dispose();
       disposeResumeLifecycle();
+    });
+    // pagehide also fires when the WebView is evicted without a beforeunload.
+    window.addEventListener('pagehide', () => {
+      voiceController.dispose();
     });
   }
 

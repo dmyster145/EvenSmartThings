@@ -169,8 +169,8 @@ export function getOrderedFavorites(state: AppState): FavoriteItem[] {
   return result;
 }
 
-const MAIN_MENU_ITEMS: MainMenuItem[] = ['scenes', 'devices', 'favorites'];
-const MAIN_MENU_LABEL: Record<MainMenuItem, string> = { scenes: 'Scenes', devices: 'Devices', favorites: 'Favorites' };
+const MAIN_MENU_ITEMS: MainMenuItem[] = ['scenes', 'devices', 'favorites', 'voice'];
+const MAIN_MENU_LABEL: Record<MainMenuItem, string> = { scenes: 'Scenes', devices: 'Devices', favorites: 'Favorites', voice: 'Tap to speak' };
 
 /** Ordered main menu items (for display). Excludes Favorites if user has none. */
 export function getMainMenuOrderedItems(state: AppState): MainMenuItem[] {

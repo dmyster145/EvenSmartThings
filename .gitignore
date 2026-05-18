@@ -16,6 +16,9 @@ server/data/
 dist/
 build/
 *.tsbuildinfo
+
+# Offline Vosk speech model — ~40 MB, fetched via `npm run fetch:voice-model`
+public/vosk/model.tar.gz
 *.egg-info/
 
 # IDE and OS

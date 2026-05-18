@@ -10,7 +10,7 @@ import {
   ImageContainerProperty,
   TextContainerProperty,
 } from '@evenrealities/even_hub_sdk';
-import type { AppState } from '../state/contracts';
+import type { AppState, MainMenuItem } from '../state/contracts';
 import {
   getSelectedDevice,
   getSelectedRoom,
@@ -119,7 +119,13 @@ function buildStatsContent(state: AppState): string {
   // cluttering the list). Show it even when stats are disabled so the wearer
   // always knows a refresh is in flight while cached items are displayed.
   const refreshing = state.listsRefreshing;
-  if (!vis(state).enabled) return refreshing ? 'Refreshing…' : '';
+  // Voice status renders BELOW the stats (refresh hint stays above).
+  const voiceLine = voiceStatsLine(state);
+  if (!vis(state).enabled) {
+    return [refreshing ? 'Refreshing…' : null, voiceLine]
+      .filter((l): l is string => !!l)
+      .join('\n');
+  }
   if (state.authStatus === 'expired') {
     return [AUTH_EXPIRED_STATS_TITLE, AUTH_EXPIRED_STATS_DETAIL].join('\n');
   }
@@ -194,8 +200,13 @@ function buildStatsContent(state: AppState): string {
     }
   }
 
-  const body = lines.slice(0, MAX_STAT_LINES);
-  return (refreshing ? ['Refreshing…', ...body] : body).join('\n');
+  const prefix = [refreshing ? 'Refreshing…' : null].filter(
+    (l): l is string => !!l,
+  );
+  const suffix = [voiceLine].filter((l): l is string => !!l);
+  // Reserve room so the voice line stays visible at the bottom.
+  const body = lines.slice(0, Math.max(0, MAX_STAT_LINES - prefix.length - suffix.length));
+  return [...prefix, ...body, ...suffix].join('\n');
 }
 
 /** Stats text for the right panel. Use with hub.updateText() to refresh stats without rebuilding the page. */
@@ -447,11 +458,23 @@ function favoriteNamesForListView(state: AppState): string[] {
   return [prevLabel, ...part, LABEL_NEXT];
 }
 
-const MAIN_MENU_LABELS: Record<'scenes' | 'devices' | 'favorites', string> = {
+const MAIN_MENU_LABELS: Record<MainMenuItem, string> = {
   scenes: 'Scenes',
   devices: 'Devices',
   favorites: 'Favorites',
+  voice: 'Tap to speak',
 };
+
+/** Voice status line for the right-side stats box (null when no voice activity).
+ *  Voice is an in-place main-menu action: "Listening…" / partials / the result
+ *  show here instead of a dedicated screen. */
+function voiceStatsLine(state: AppState): string | null {
+  if (state.listView !== 'main') return null;
+  const status = state.voice.status?.trim();
+  if (status && status.length > 0) return status;
+  if (state.voice.listening) return 'Listening…';
+  return null;
+}
 
 /** List item names for current listView (main, scenes, rooms, devices, favorites, device-detail, device-dim, room-all-*). */
 function listItemNamesForState(state: AppState): string[] {

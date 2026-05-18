@@ -42,11 +42,21 @@ function migrate(parsed: unknown): Preferences {
     if (Array.isArray(loc.devices)) prefs.listOrderCustomIds.devices = loc.devices as string[];
     if (Array.isArray(loc.favorites)) prefs.listOrderCustomIds.favorites = loc.favorites as string[];
     if (Array.isArray(loc.main)) {
-      const valid: MainMenuItem[] = ['scenes', 'devices', 'favorites'];
-      prefs.listOrderCustomIds.main = (loc.main as unknown[]).filter((x): x is MainMenuItem =>
+      const valid: MainMenuItem[] = ['scenes', 'devices', 'favorites', 'voice'];
+      const filtered = (loc.main as unknown[]).filter((x): x is MainMenuItem =>
         typeof x === 'string' && valid.includes(x as MainMenuItem)
       );
-      if (prefs.listOrderCustomIds.main.length === 0) prefs.listOrderCustomIds.main = [...DEFAULT_PREFERENCES.listOrderCustomIds.main];
+      if (filtered.length === 0) {
+        prefs.listOrderCustomIds.main = [...DEFAULT_PREFERENCES.listOrderCustomIds.main];
+      } else {
+        // Append any default menu items the stored order is missing (e.g.
+        // 'voice' added in schema v3) so existing users get new items at the
+        // end rather than losing them. Preserves the user's chosen order.
+        const missing = DEFAULT_PREFERENCES.listOrderCustomIds.main.filter(
+          (item) => !filtered.includes(item)
+        );
+        prefs.listOrderCustomIds.main = [...filtered, ...missing];
+      }
     }
   }
   if (p.statsVisibility && typeof p.statsVisibility === 'object') {

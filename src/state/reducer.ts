@@ -161,6 +161,15 @@ export function reduce(state: AppState, action: Action): AppState {
     case 'LISTS_REFRESH_END':
       return { ...state, listsRefreshing: false };
 
+    case 'VOICE_UI':
+      return {
+        ...state,
+        voice: {
+          listening: action.listening ?? state.voice.listening,
+          status: action.status !== undefined ? action.status : state.voice.status,
+        },
+      };
+
     case 'EXECUTE_START':
       return { ...state, status: 'executing' };
 
@@ -244,5 +253,6 @@ export function buildInitialState(): AppState {
     preferences: { ...DEFAULT_PREFERENCES },
     allDevices: [],
     listsRefreshing: true,
+    voice: { listening: false, status: null },
   };
 }
