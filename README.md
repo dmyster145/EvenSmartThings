@@ -27,7 +27,7 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE).
 - **Scenes** — Run any scene with one tap.
 - **Devices** — Browse by room; tap to turn on/off or adjust dim level.
 - **Favorites** — One list mixing scenes and devices; you choose what’s in it and the order.
-- **Voice (Tap to speak)** — A main-menu item that runs scenes, switches devices, or opens rooms by voice. Recognition is fully offline on the glasses; every recognized command requires a single tap to confirm (double-tap cancels) so a misheard phrase never fires.
+- **Voice (Tap to speak)** — A main-menu item for hands-free control: run scenes; turn devices on/off; dim ("set living room lights to 20 percent"); open/close doors, shades, and valves; lock/unlock; media play/pause/stop and mute; and whole-room on/off ("office on"). Each command is routed only to a device that supports it. Recognition is fully offline on the glasses; every recognized command requires a single tap to confirm (double-tap cancels) so a misheard phrase never fires.
 - **Rooms** — Navigate by room, then control devices or run room actions.
 - **Launch defaults** — Choose what opens first whenever the app launches: resume the last useful screen, open the main screen, jump into Scenes, open Devices, or go straight to Favorites.
 - **Config panel** — Connect SmartThings, set the app-launch default view, set list order (alphabetical, reverse, or custom — including where **Tap to speak** sits in the Home screen order), choose which stats show on the glasses, manage favorites, and set custom display names in the Even App.

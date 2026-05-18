@@ -110,7 +110,7 @@ import { installResumeLifecycle } from './lifecycle/install-resume-lifecycle';
 import { hasCredentialSignal } from './auth/credential-signal';
 import { classifyTap } from './input/tap-dedup';
 import { createVoiceController } from './voice/controller';
-import { matchVoiceCommand, type VoiceCatalog } from './voice/match';
+import { matchVoiceCommand, type VoiceCatalog, type DeviceAction as VoiceDeviceAction } from './voice/match';
 import type { AudioPayload } from './voice/pcm';
 import { classifySceneResult } from './render/scene-result';
 import { LIST_CACHE_KEY, serializeListSnapshot, parseListSnapshot } from './state/list-cache';
@@ -2316,6 +2316,24 @@ export async function initApp(): Promise<void> {
     }
   }
 
+  async function runShadeLevelAbsolute(deviceId: string, level: number): Promise<void> {
+    try {
+      const lvl = Math.max(0, Math.min(100, Math.round(level)));
+      appendDebugLog(`Shade level requested. deviceId=${deviceId} level=${lvl}`);
+      const response = await withPendingFeedback(() =>
+        executeDeviceCommandViaServer(deviceId, 'windowShadeLevel', 'setShadeLevel', [lvl])
+      );
+      const success = await isDeviceCommandSuccess(deviceId, response);
+      appendDebugLog(`Shade level result. deviceId=${deviceId} success=${success}`);
+      await showConfirmation(success ? 'success' : 'failure');
+      if (success) void loadDeviceStats(deviceId);
+    } catch (err) {
+      appendDebugLog(`Shade level failed. deviceId=${deviceId} error=${getErrorMessage(err)}`, true);
+      await handleTerminalAuthFailure(err);
+      await showConfirmation('failure');
+    }
+  }
+
   async function runMediaInputSource(deviceId: string, source: string): Promise<void> {
     try {
       const response = await withPendingFeedback(() => executeDeviceCommandViaServer(deviceId, 'mediaInputSource', 'setInputSource', [source]));
@@ -2487,6 +2505,60 @@ export async function initApp(): Promise<void> {
     await showConfirmation(confirmationResultFromCounts(successCount, devices.length));
   }
 
+  // Apply one voice action to EVERY device sharing a name (e.g. 6 "Kitchen
+  // Lights"). open/close resolves per-device (garage vs shade vs valve).
+  async function runVoiceDeviceBatch(
+    ids: string[],
+    action: VoiceDeviceAction,
+    level: number | undefined,
+  ): Promise<void> {
+    const byId = new Map(store.getState().allDevices.map((d) => [d.deviceId, d]));
+    const cmds: Array<{ deviceId: string; capability: string; command: string; arguments?: unknown[] }> = [];
+    for (const deviceId of ids) {
+      const d = byId.get(deviceId);
+      if (action === 'level') {
+        cmds.push({ deviceId, capability: 'switchLevel', command: 'setLevel', arguments: [level ?? 0] });
+      } else if (action === 'on' || action === 'off') {
+        cmds.push({ deviceId, capability: 'switch', command: action });
+      } else if (action === 'lock' || action === 'unlock') {
+        cmds.push({ deviceId, capability: 'lock', command: action });
+      } else if (action === 'play' || action === 'pause' || action === 'stop') {
+        cmds.push({ deviceId, capability: 'mediaPlayback', command: action });
+      } else if (action === 'next' || action === 'prev') {
+        cmds.push({ deviceId, capability: 'mediaTrackControl', command: action === 'next' ? 'nextTrack' : 'previousTrack' });
+      } else if (action === 'mute' || action === 'unmute') {
+        cmds.push({ deviceId, capability: 'audioMute', command: action });
+      } else if (action === 'volumeUp' || action === 'volumeDown') {
+        cmds.push({ deviceId, capability: 'audioVolume', command: action });
+      } else if (action === 'press') {
+        cmds.push({ deviceId, capability: 'momentary', command: 'push' });
+      } else if (action === 'open' || action === 'close') {
+        if (d?.supportsGarageDoor) {
+          cmds.push({ deviceId, capability: d.garageDoorCapability ?? 'garageDoorControl', command: action });
+        } else if (d?.supportsWindowShade) {
+          cmds.push({ deviceId, capability: 'windowShade', command: action });
+        } else if (d?.supportsValve) {
+          cmds.push({ deviceId, capability: 'valve', command: action });
+        }
+      }
+    }
+    if (cmds.length === 0) {
+      await showConfirmation('failure');
+      return;
+    }
+    appendDebugLog(`Voice batch requested. count=${cmds.length} action=${action}${level != null ? ` level=${level}` : ''}`);
+    let results: SmartThingsBatchRelayResult[] = [];
+    try {
+      const response = await withPendingFeedback(() => executeBatchDeviceCommandsViaServer(cmds));
+      results = response.results ?? [];
+    } catch (err) {
+      if (await handleTerminalAuthFailure(err)) return;
+    }
+    const successCount = results.filter((entry) => entry.ok).length;
+    appendDebugLog(`Voice batch result. success=${successCount}/${cmds.length} action=${action}`);
+    await showConfirmation(confirmationResultFromCounts(successCount, cmds.length));
+  }
+
   async function runAllDimmableDevicesSetLevel(level: number): Promise<void> {
     const devices = store.getState().devices.filter((d) => d.supportsDimmer);
     if (devices.length === 0) {
@@ -2513,6 +2585,29 @@ export async function initApp(): Promise<void> {
     const successCount = results.filter((entry) => entry.ok).length;
     appendDebugLog(`Batch level result. success=${successCount}/${devices.length} level=${level}`);
     await showConfirmation(confirmationResultFromCounts(successCount, devices.length));
+  }
+
+  // Fetch a room's devices WITHOUT dispatching/navigating — voice room-level
+  // commands must execute while staying on the main menu (no jump into the
+  // room's device list). Returns matching device ids, or null on failure.
+  async function fetchRoomDeviceIds(
+    roomId: string,
+    pred: (d: DeviceEntry) => boolean,
+  ): Promise<string[] | null> {
+    try {
+      let devices: DeviceEntry[];
+      if (DEMO_DEVICES_ENABLED && roomId === DEMO_ROOM_ID) {
+        devices = DEMO_DEVICES;
+      } else {
+        const locationId = await getLocationId();
+        const raw = await withSmartThingsClient((client) => client.rooms.listDevices(roomId, locationId));
+        devices = normalizeDevices(raw);
+      }
+      return devices.filter(pred).map((d) => d.deviceId);
+    } catch (err) {
+      await handleTerminalAuthFailure(err);
+      return null;
+    }
   }
 
   async function loadDevicesForRoom(roomId: string): Promise<void> {
@@ -2695,8 +2790,10 @@ export async function initApp(): Promise<void> {
       const cmd = pendingVoiceCommand;
       pendingVoiceCommand = null;
       if (tapCount >= 2) {
+        appendDebugLog(`Voice cancelled by double-tap: ${cmd.label}`);
         setVoiceStatus('Cancelled — tap to speak');
       } else {
+        appendDebugLog(`Voice confirmed: ${cmd.label}`);
         cmd.exec();
       }
       lastTapIndex = -1;
@@ -3512,7 +3609,19 @@ export async function initApp(): Promise<void> {
   // (bundled Vosk model). The mic is force-closed on every exit path.
   function buildVoiceCatalog(): VoiceCatalog {
     const state = store.getState();
-    const devices = state.allDevices.length > 0 ? state.allDevices : state.devices;
+    const allDevices = state.allDevices.length > 0 ? state.allDevices : state.devices;
+    // Offer any device the voice layer can drive (on/off, dim, open/close,
+    // lock, media, mute). Per-capability `caps` let the matcher pick the
+    // right device for a verb and never send an unsupported command.
+    const devices = allDevices.filter(
+      (d) =>
+        d.supportsSwitch || d.supportsDimmer || d.supportsGarageDoor ||
+        d.supportsWindowShade || d.supportsValve || d.supportsLock ||
+        d.supportsMediaPlayback || d.supportsMediaTrackControl || d.supportsAudioMute ||
+        d.supportsAudioVolume || d.supportsMomentary || d.supportsColorTemperature ||
+        d.supportsFanSpeed || d.supportsWindowShadeLevel || d.supportsThermostatMode ||
+        d.supportsThermostatHeatingSetpoint || d.supportsThermostatCoolingSetpoint,
+    );
     return {
       scenes: getOrderedScenes(state).map((s) => ({
         id: s.sceneId,
@@ -3521,6 +3630,22 @@ export async function initApp(): Promise<void> {
       devices: devices.map((d) => ({
         id: d.deviceId,
         name: getDisplayName(state, 'device', d.deviceId, d.deviceName),
+        caps: {
+          switch: !!d.supportsSwitch,
+          dimmer: !!d.supportsDimmer,
+          openClose: !!(d.supportsGarageDoor || d.supportsWindowShade || d.supportsValve),
+          lock: !!d.supportsLock,
+          media: !!d.supportsMediaPlayback,
+          track: !!d.supportsMediaTrackControl,
+          mute: !!d.supportsAudioMute,
+          volume: !!d.supportsAudioVolume,
+          press: !!d.supportsMomentary,
+          colorTemp: !!d.supportsColorTemperature,
+          fanSpeed: !!d.supportsFanSpeed,
+          shadeLevel: !!d.supportsWindowShadeLevel,
+          thermostatSet: !!(d.supportsThermostatHeatingSetpoint || d.supportsThermostatCoolingSetpoint),
+          thermostatMode: !!d.supportsThermostatMode,
+        },
       })),
       rooms: getOrderedRooms(state).map((r) => ({
         id: r.roomId,
@@ -3535,8 +3660,31 @@ export async function initApp(): Promise<void> {
   }
 
   function handleVoiceTranscript(text: string): void {
-    appendDebugLog(`Voice transcript: "${text}"`);
-    const match = matchVoiceCommand(text, buildVoiceCatalog());
+    const catalog = buildVoiceCatalog();
+    appendDebugLog(
+      `Voice transcript: "${text}" | catalog scenes=${catalog.scenes.length}`
+        + ` devices=${catalog.devices.length} rooms=${catalog.rooms.length}`
+    );
+    const match = matchVoiceCommand(text, catalog);
+
+    // Structured outcome so a bug report shows WHAT it resolved to, not just
+    // what was heard.
+    if (match.type === 'none') {
+      appendDebugLog(`Voice match: none — reason="${match.reason}"`);
+    } else if (match.type === 'device') {
+      appendDebugLog(
+        `Voice match: device name="${match.name}" action=${match.action}`
+          + `${match.level !== undefined ? ` level=${match.level}` : ''}`
+          + ` targets=${match.ids?.length ?? 1} id=${match.id}`
+      );
+    } else if (match.type === 'room') {
+      appendDebugLog(
+        `Voice match: room name="${match.name}" id=${match.id}`
+          + `${match.level !== undefined ? ` level=${match.level}` : match.action ? ` action=${match.action}` : ' (open)'}`
+      );
+    } else {
+      appendDebugLog(`Voice match: scene name="${match.name}" id=${match.id}`);
+    }
 
     // No match needs no confirmation — just tell the wearer to retry.
     if (match.type === 'none') {
@@ -3563,12 +3711,126 @@ export async function initApp(): Promise<void> {
         setVoiceStatus(`Running ${match.name}`);
         void runExecuteScene(store, idx, showConfirmation);
       };
-    } else if (match.type === 'device') {
-      const action = match.action.toUpperCase();
-      label = `${match.name} → ${action}`;
+    } else if (match.type === 'device' && match.ids && match.ids.length > 1) {
+      // Multiple devices share this name (e.g. 6 "Kitchen Lights") — apply
+      // the action to all of them as one batch.
+      const ids = match.ids;
+      const A = match.action;
+      const lvl = A === 'level' ? Math.max(0, Math.min(100, match.level ?? 0)) : undefined;
+      const verb = A === 'level' ? `${lvl}%` : A.toUpperCase();
+      label = `${match.name} ×${ids.length} → ${verb}`;
       exec = () => {
-        setVoiceStatus(`${match.name} → ${action}`);
-        void runDeviceSwitch(match.id, match.action === 'on');
+        setVoiceStatus(`${match.name} ×${ids.length} → ${verb}`);
+        void runVoiceDeviceBatch(ids, A, lvl);
+      };
+    } else if (match.type === 'device') {
+      const id = match.id;
+      const A = match.action;
+      const dev = store.getState().allDevices.find((d) => d.deviceId === id);
+      if (A === 'level') {
+        const lvl = Math.max(0, Math.min(100, match.level ?? 0));
+        label = `${match.name} → ${lvl}%`;
+        exec = () => { setVoiceStatus(`${match.name} → ${lvl}%`); void runDeviceSetLevel(id, lvl); };
+      } else if (A === 'on' || A === 'off') {
+        label = `${match.name} → ${A.toUpperCase()}`;
+        exec = () => { setVoiceStatus(`${match.name} → ${A.toUpperCase()}`); void runDeviceSwitch(id, A === 'on'); };
+      } else if (A === 'open' || A === 'close') {
+        const open = A === 'open';
+        label = `${match.name} → ${A.toUpperCase()}`;
+        exec = () => {
+          setVoiceStatus(`${match.name} → ${A.toUpperCase()}`);
+          if (dev?.supportsGarageDoor) {
+            void runGarageDoor(id, open, dev.garageDoorCapability ?? 'garageDoorControl');
+          } else if (dev?.supportsWindowShade) {
+            void runWindowShade(id, open ? 'open' : 'close');
+          } else if (dev?.supportsValve) {
+            void runValve(id, open);
+          } else {
+            void showConfirmation('failure');
+          }
+        };
+      } else if (A === 'lock' || A === 'unlock') {
+        label = `${match.name} → ${A.toUpperCase()}`;
+        exec = () => { setVoiceStatus(`${match.name} → ${A.toUpperCase()}`); void runLock(id, A === 'lock'); };
+      } else if (A === 'play' || A === 'pause' || A === 'stop') {
+        label = `${match.name} → ${A.toUpperCase()}`;
+        exec = () => { setVoiceStatus(`${match.name} → ${A.toUpperCase()}`); void runMediaPlayback(id, A); };
+      } else if (A === 'next' || A === 'prev') {
+        const verb = A === 'next' ? 'NEXT TRACK' : 'PREV TRACK';
+        label = `${match.name} → ${verb}`;
+        exec = () => { setVoiceStatus(`${match.name} → ${verb}`); void runMediaTrackControl(id, A); };
+      } else if (A === 'volumeUp' || A === 'volumeDown') {
+        const verb = A === 'volumeUp' ? 'VOL +' : 'VOL −';
+        label = `${match.name} → ${verb}`;
+        exec = () => { setVoiceStatus(`${match.name} → ${verb}`); void runAudioVolume(id, A === 'volumeUp' ? 'up' : 'down'); };
+      } else if (A === 'press') {
+        label = `${match.name} → PRESS`;
+        exec = () => { setVoiceStatus(`${match.name} → PRESS`); void runMomentary(id); };
+      } else if (A === 'warmer' || A === 'cooler') {
+        // colorTemperature on a bulb; otherwise thermostat setpoint.
+        const verb = A === 'warmer' ? 'WARMER' : 'COOLER';
+        label = `${match.name} → ${verb}`;
+        exec = () => {
+          setVoiceStatus(`${match.name} → ${verb}`);
+          if (dev?.supportsColorTemperature) {
+            void runColorTemperature(id, A === 'warmer' ? 'warmer' : 'cooler');
+          } else if (A === 'warmer' && dev?.supportsThermostatHeatingSetpoint) {
+            void runThermostatSetpoint(id, 'heating', 1);
+          } else if (A === 'cooler' && dev?.supportsThermostatCoolingSetpoint) {
+            void runThermostatSetpoint(id, 'cooling', -1);
+          } else if (dev?.supportsThermostatHeatingSetpoint) {
+            void runThermostatSetpoint(id, 'heating', A === 'warmer' ? 1 : -1);
+          } else if (dev?.supportsThermostatCoolingSetpoint) {
+            void runThermostatSetpoint(id, 'cooling', A === 'warmer' ? 1 : -1);
+          } else {
+            void showConfirmation('failure');
+          }
+        };
+      } else if (A === 'faster' || A === 'slower') {
+        const verb = A === 'faster' ? 'FASTER' : 'SLOWER';
+        label = `${match.name} → ${verb}`;
+        exec = () => { setVoiceStatus(`${match.name} → ${verb}`); void runFanSpeed(id, A === 'faster' ? 1 : -1); };
+      } else if (A === 'shadeLevel') {
+        const lvl = Math.max(0, Math.min(100, match.level ?? 0));
+        label = `${match.name} → ${lvl}%`;
+        exec = () => { setVoiceStatus(`${match.name} → ${lvl}%`); void runShadeLevelAbsolute(id, lvl); };
+      } else if (A === 'modeHeat' || A === 'modeCool' || A === 'modeAuto') {
+        const mode = A === 'modeHeat' ? 'heat' : A === 'modeCool' ? 'cool' : 'auto';
+        label = `${match.name} → ${mode.toUpperCase()}`;
+        exec = () => { setVoiceStatus(`${match.name} → ${mode.toUpperCase()}`); void runThermostatMode(id, mode); };
+      } else {
+        // mute / unmute
+        label = `${match.name} → ${A.toUpperCase()}`;
+        exec = () => { setVoiceStatus(`${match.name} → ${A.toUpperCase()}`); void runAudioMute(id, A === 'mute'); };
+      }
+    } else if (match.level !== undefined) {
+      // Room-level dim: set every dimmable device in the room ("kitchen 30%").
+      // Fetch + batch WITHOUT navigating — stay on the main menu.
+      const lvl = Math.max(0, Math.min(100, match.level));
+      const roomId = match.id;
+      label = `${match.name}: all → ${lvl}%`;
+      exec = () => {
+        setVoiceStatus(`${match.name}: all → ${lvl}%`);
+        void (async () => {
+          const ids = await fetchRoomDeviceIds(roomId, (d) => !!d.supportsDimmer);
+          if (!ids || ids.length === 0) { await showConfirmation('failure'); return; }
+          await runVoiceDeviceBatch(ids, 'level', lvl);
+        })();
+      };
+    } else if (match.action) {
+      // Room-level switch: turn every switchable device in the room on/off.
+      // Fetch + batch WITHOUT navigating — stay on the main menu.
+      const action = match.action.toUpperCase();
+      const on = match.action === 'on';
+      const roomId = match.id;
+      label = `${match.name}: all ${action}`;
+      exec = () => {
+        setVoiceStatus(`${match.name}: all ${action}`);
+        void (async () => {
+          const ids = await fetchRoomDeviceIds(roomId, (d) => !!d.supportsSwitch);
+          if (!ids || ids.length === 0) { await showConfirmation('failure'); return; }
+          await runVoiceDeviceBatch(ids, on ? 'on' : 'off', undefined);
+        })();
       };
     } else {
       label = `Open “${match.name}”`;
@@ -3601,6 +3863,7 @@ export async function initApp(): Promise<void> {
     },
     onStatus: (message) => setVoiceStatus(message),
     onTranscript: handleVoiceTranscript,
+    onLog: (message) => appendDebugLog(message),
   });
   // Preload the offline model off the critical path so the first tap is instant.
   voiceController.warm();

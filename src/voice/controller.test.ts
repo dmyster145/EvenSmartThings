@@ -112,8 +112,8 @@ describe('voice controller state machine', () => {
     c.feed(LOUD); // heardSpeech = true
     expect(h.fakeRec.accept).toHaveBeenCalled();
 
-    // Past MIN_LISTEN and SILENCE windows → endpoint poll finalizes.
-    await vi.advanceTimersByTimeAsync(1500);
+    // Past MIN_LISTEN and SILENCE (1600 ms) windows → endpoint poll finalizes.
+    await vi.advanceTimersByTimeAsync(1900);
     expect(h.fakeRec.finalize).toHaveBeenCalled();
 
     // Recognizer delivers the final text.

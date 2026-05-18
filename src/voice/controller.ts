@@ -29,12 +29,21 @@ export interface VoiceControllerDeps {
   onStatus(message: string): void;
   /** Final transcript — the app matches + executes. */
   onTranscript(text: string): void;
+  /** Diagnostic line for the copyable debug log (model/mic/recognizer
+   *  lifecycle + failures). Separate from onStatus so it isn't spammed by
+   *  interim partials. Optional. */
+  onLog?(message: string): void;
 }
 
 const SPEECH_AMPLITUDE = 0.012;
-const SILENCE_MS = 900;
+// End-of-speech silence window. 900 ms cut people off mid-command on a normal
+// pause (e.g. "turn the living room lights … to twenty percent"); 1.6 s lets a
+// natural pause ride through while still feeling responsive once you stop.
+const SILENCE_MS = 1600;
 const MIN_LISTEN_MS = 400;
-const MAX_LISTEN_MS = 7000;
+// Hard cap on a single utterance. Raised from 7 s so longer commands
+// ("set the living room lights to twenty percent") aren't truncated.
+const MAX_LISTEN_MS = 12000;
 const RESULT_TIMEOUT_MS = 2000;
 const ENDPOINT_POLL_MS = 150;
 
@@ -56,6 +65,7 @@ export interface VoiceController {
 
 export function createVoiceController(deps: VoiceControllerDeps): VoiceController {
   const { bridge, modelUrl, isEligible, onListenStart, onListenEnd, onStatus, onTranscript } = deps;
+  const log = (m: string): void => deps.onLog?.(`[voice] ${m}`);
 
   let recognizer: Recognizer | null = null;
   let modelFailed = false;
@@ -94,6 +104,7 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
   function handleTranscript(text: string): void {
     if (!listening && !finalizing) return;
     endSession();
+    log(`final transcript: "${text}"`);
     onStatus(`Heard: ${text}`);
     onTranscript(text);
   }
@@ -106,6 +117,7 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
     resultTimer = setTimeout(() => {
       if (!finalizing) return;
       endSession();
+      log('finalize timed out — no transcript from recognizer');
       onStatus('Didn’t catch that — tap to try again');
     }, RESULT_TIMEOUT_MS);
   }
@@ -128,11 +140,14 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
         },
         onError: (e) => {
           console.error('[voice] recognizer error:', e);
+          log(`recognizer error: ${e}`);
         },
       });
+      log('offline model loaded — voice ready');
       return recognizer;
     } catch (err) {
       console.error('[voice] model load failed:', err);
+      log(`model load FAILED: ${err instanceof Error ? err.message : String(err)}`);
       modelFailed = true;
       return null;
     }
@@ -149,10 +164,12 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
   function start(): boolean {
     if (starting || listening || !isEligible()) return false;
     if (modelFailed) {
+      log('start blocked: model unavailable');
       onStatus('Voice model unavailable');
       return false;
     }
     if (!recognizer) {
+      log('start deferred: model still loading (tap again)');
       warm();
       onStatus('Preparing voice… tap again');
       return false;
@@ -164,6 +181,7 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
         if (!ok || !isEligible()) {
           stopMic();
           starting = false;
+          log(`start aborted: micOpened=${ok} eligible=${isEligible()}`);
           onStatus('Mic unavailable');
           return;
         }
@@ -172,6 +190,7 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
         heardSpeech = false;
         startedAt = Date.now();
         lastVoiceAt = startedAt;
+        log('listening — mic open');
         onListenStart();
         pollTimer = setInterval(onEndpointPoll, ENDPOINT_POLL_MS);
         maxTimer = setTimeout(finalizeUtterance, MAX_LISTEN_MS);
@@ -195,6 +214,7 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
 
   function cancel(): void {
     if (!listening && !starting) return;
+    log('listening cancelled (tap/navigation)');
     endSession();
     onStatus('');
   }
