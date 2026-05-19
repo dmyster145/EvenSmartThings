@@ -3583,7 +3583,13 @@ export async function initApp(): Promise<void> {
         const pendingToken = await checkPendingAuth();
         appendDebugLog(`Resume pending auth result (${reason}): token=${pendingToken ? 'recovered' : 'none'}`);
         if (pendingToken) {
-          appendDebugLog(`Pending auth recovered session on resume (${reason}).`);
+          // Persist to Even bridge storage (survives the WebView localStorage
+          // wipe on app close). Without this, a session recovered on RESUME
+          // (vs. startup) is lost on the next cold open and — once the 1h
+          // pending-auth record expires server-side — forces a full reconnect.
+          // Mirrors the startup recovery path (SESSION_BRIDGE_KEY write above).
+          await hub.setLocalStorage(SESSION_BRIDGE_KEY, pendingToken);
+          appendDebugLog(`Pending auth recovered session on resume (${reason}); persisted to bridge.`);
           sessionStatus = await getSessionStatus();
           appendDebugLog(`Post-recovery session (${reason}): authenticated=${sessionStatus.authenticated}`);
         }
