@@ -75,6 +75,7 @@ import {
   executeSceneViaServer,
   listScenesViaServer,
   getSessionStatus,
+  getVoiceConfig,
   getSmartThingsAccessToken,
   buildCrossDeviceConnectUrl,
   preparePendingAuth,
@@ -111,6 +112,9 @@ import { hasCredentialSignal } from './auth/credential-signal';
 import { classifyTap } from './input/tap-dedup';
 import { createVoiceController } from './voice/controller';
 import { matchVoiceCommand, type VoiceCatalog, type DeviceAction as VoiceDeviceAction } from './voice/match';
+import { defaultGrammar, type Grammar } from './voice/grammar';
+import { VOICE_CONFIG_KEY, defaultVoiceConfig, type VoiceConfig } from './voice/config';
+import { createVoiceConfigController } from './voice/config-lifecycle';
 import type { AudioPayload } from './voice/pcm';
 import { classifySceneResult } from './render/scene-result';
 import { LIST_CACHE_KEY, serializeListSnapshot, parseListSnapshot } from './state/list-cache';
@@ -1433,6 +1437,24 @@ export async function initApp(): Promise<void> {
       .catch(() => { listCacheWritten = false; });
   }
 
+  // Active (possibly downloaded) voice config/grammar. Bundled default is live
+  // synchronously so voice works offline before any I/O; the controller swaps
+  // these holders if a cached/remote config is applied. Read live per command.
+  let activeVoiceConfig: VoiceConfig = defaultVoiceConfig;
+  let activeGrammar: Grammar = defaultGrammar;
+  let voiceConfigProvenance = 'bundled';
+  const voiceConfigController = createVoiceConfigController({
+    readStored: () => hub.getLocalStorage(VOICE_CONFIG_KEY),
+    writeStored: (s) => hub.setLocalStorage(VOICE_CONFIG_KEY, s),
+    fetchRemote: getVoiceConfig,
+    log: (m) => appendDebugLog(m),
+    onApply: (cfg, gram, prov) => {
+      activeVoiceConfig = cfg;
+      activeGrammar = gram;
+      voiceConfigProvenance = prov;
+    },
+  });
+
   // Hydrate the lists from the on-device cache so the wearer sees their REAL
   // items immediately while the slow live refresh runs. Does NOT set the
   // scenesLoaded/roomsLoaded "live" flags (watchdog must still fetch fresh
@@ -1456,6 +1478,14 @@ export async function initApp(): Promise<void> {
     } catch {
       // Live load covers it.
     }
+  })();
+
+  // Voice config: apply the on-device cached config immediately (offline-safe),
+  // then best-effort refresh from the backend in the background. Neither blocks
+  // startup or the recognizer; failures keep the bundled/last-good config.
+  void (async () => {
+    await voiceConfigController.hydrate();
+    await voiceConfigController.refresh();
   })();
 
   async function loadScenes(): Promise<void> {
@@ -3662,10 +3692,11 @@ export async function initApp(): Promise<void> {
   function handleVoiceTranscript(text: string): void {
     const catalog = buildVoiceCatalog();
     appendDebugLog(
-      `Voice transcript: "${text}" | catalog scenes=${catalog.scenes.length}`
+      `Voice transcript: "${text}" | grammar=${voiceConfigProvenance}`
+        + ` catalog scenes=${catalog.scenes.length}`
         + ` devices=${catalog.devices.length} rooms=${catalog.rooms.length}`
     );
-    const match = matchVoiceCommand(text, catalog);
+    const match = matchVoiceCommand(text, catalog, activeGrammar);
 
     // Structured outcome so a bug report shows WHAT it resolved to, not just
     // what was heard.
@@ -3864,6 +3895,17 @@ export async function initApp(): Promise<void> {
     onStatus: (message) => setVoiceStatus(message),
     onTranscript: handleVoiceTranscript,
     onLog: (message) => appendDebugLog(message),
+    // Listen timings from the active config (cached value if hydrate() already
+    // ran; bundled otherwise). Read once here — a later remote refresh applies
+    // on the next launch (deliberate: protects the controller timing contract).
+    timings: {
+      silenceMs: activeVoiceConfig.silenceMs,
+      minListenMs: activeVoiceConfig.minListenMs,
+      maxListenMs: activeVoiceConfig.maxListenMs,
+      resultTimeoutMs: activeVoiceConfig.resultTimeoutMs,
+      endpointPollMs: activeVoiceConfig.endpointPollMs,
+    },
+    grammarProvenance: voiceConfigProvenance,
   });
   // Preload the offline model off the critical path so the first tap is instant.
   voiceController.warm();

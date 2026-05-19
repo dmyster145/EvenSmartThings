@@ -33,19 +33,36 @@ export interface VoiceControllerDeps {
    *  lifecycle + failures). Separate from onStatus so it isn't spammed by
    *  interim partials. Optional. */
   onLog?(message: string): void;
+  /** Listen-window tunables (from the downloaded/cached voice config). Each
+   *  field defaults to the bundled constant when omitted — existing callers
+   *  (and controller.test.ts, which omits this) are unaffected. Read ONCE at
+   *  construction; a later remote config applies on the next app launch. */
+  timings?: Partial<VoiceTimings>;
+  /** Where the active config came from (`bundled`/`cache`/`remote@N`) — logged
+   *  once for bug-report reproducibility. */
+  grammarProvenance?: string;
 }
 
-const SPEECH_AMPLITUDE = 0.012;
-// End-of-speech silence window. 900 ms cut people off mid-command on a normal
-// pause (e.g. "turn the living room lights … to twenty percent"); 1.6 s lets a
-// natural pause ride through while still feeling responsive once you stop.
-const SILENCE_MS = 1600;
-const MIN_LISTEN_MS = 400;
-// Hard cap on a single utterance. Raised from 7 s so longer commands
-// ("set the living room lights to twenty percent") aren't truncated.
-const MAX_LISTEN_MS = 12000;
-const RESULT_TIMEOUT_MS = 2000;
-const ENDPOINT_POLL_MS = 150;
+export interface VoiceTimings {
+  silenceMs: number;
+  minListenMs: number;
+  maxListenMs: number;
+  resultTimeoutMs: number;
+  endpointPollMs: number;
+}
+
+const SPEECH_AMPLITUDE = 0.012; // mic-level threshold (audio, not vocab — stays local)
+// Bundled listen-window defaults. End-of-speech silence: 900 ms cut people off
+// mid-command on a normal pause; 1.6 s lets a natural pause ride through.
+// Max utterance raised to 12 s so long commands aren't truncated. A downloaded
+// voice config can override these (applied on next launch).
+const DEFAULT_TIMINGS: VoiceTimings = {
+  silenceMs: 1600,
+  minListenMs: 400,
+  maxListenMs: 12000,
+  resultTimeoutMs: 2000,
+  endpointPollMs: 150,
+};
 
 export interface VoiceController {
   /** Begin a fresh preload of the model (call once at app init to warm the cache). */
@@ -66,6 +83,8 @@ export interface VoiceController {
 export function createVoiceController(deps: VoiceControllerDeps): VoiceController {
   const { bridge, modelUrl, isEligible, onListenStart, onListenEnd, onStatus, onTranscript } = deps;
   const log = (m: string): void => deps.onLog?.(`[voice] ${m}`);
+  // Resolve listen tunables once (remote config applies on next launch).
+  const t: VoiceTimings = { ...DEFAULT_TIMINGS, ...(deps.timings ?? {}) };
 
   let recognizer: Recognizer | null = null;
   let modelFailed = false;
@@ -119,13 +138,13 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
       endSession();
       log('finalize timed out — no transcript from recognizer');
       onStatus('Didn’t catch that — tap to try again');
-    }, RESULT_TIMEOUT_MS);
+    }, t.resultTimeoutMs);
   }
 
   function onEndpointPoll(): void {
     if (!listening) return;
     const now = Date.now();
-    if (now - startedAt > MIN_LISTEN_MS && heardSpeech && now - lastVoiceAt > SILENCE_MS) {
+    if (now - startedAt > t.minListenMs && heardSpeech && now - lastVoiceAt > t.silenceMs) {
       finalizeUtterance();
     }
   }
@@ -144,6 +163,10 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
         },
       });
       log('offline model loaded — voice ready');
+      log(
+        `grammar source=${deps.grammarProvenance ?? 'bundled'} silenceMs=${t.silenceMs}`
+          + ` maxListenMs=${t.maxListenMs}`,
+      );
       return recognizer;
     } catch (err) {
       console.error('[voice] model load failed:', err);
@@ -192,8 +215,8 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
         lastVoiceAt = startedAt;
         log('listening — mic open');
         onListenStart();
-        pollTimer = setInterval(onEndpointPoll, ENDPOINT_POLL_MS);
-        maxTimer = setTimeout(finalizeUtterance, MAX_LISTEN_MS);
+        pollTimer = setInterval(onEndpointPoll, t.endpointPollMs);
+        maxTimer = setTimeout(finalizeUtterance, t.maxListenMs);
       } finally {
         starting = false;
       }

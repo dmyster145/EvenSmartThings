@@ -15,6 +15,7 @@ import {
 import { getServerConfig, isSmartThingsConfigured } from './config.js';
 import { createSessionStore } from './session-store.js';
 import { buildAuthorizeUrl, ensureFreshSession, exchangeAuthorizationCode } from './smartthings-oauth.js';
+import { VOICE_CONFIG_PAYLOAD } from './voice-config.js';
 
 const config = getServerConfig();
 const store = createSessionStore(config);
@@ -343,6 +344,27 @@ export async function handleHealthRequest(request, response) {
       serverTime: new Date().toISOString(),
       storageDriver: config.storageDriver,
     });
+  } catch (err) {
+    return sendServerError(response, err);
+  }
+}
+
+/**
+ * Public voice grammar/tunables config. No auth, cacheable. The shared json()
+ * helper forces Cache-Control: no-store, so this writes its own head to allow
+ * a 1h CDN/client cache (the config rarely changes; the client also keeps an
+ * on-device copy + bundled fallback).
+ */
+export async function handleVoiceConfigRequest(request, response) {
+  try {
+    if (handlePreflightIfNeeded(response, request, config.publicAppUrl)) return;
+    applyCors(response, request, config.publicAppUrl);
+    if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);
+    response.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+    });
+    response.end(JSON.stringify(VOICE_CONFIG_PAYLOAD));
   } catch (err) {
     return sendServerError(response, err);
   }

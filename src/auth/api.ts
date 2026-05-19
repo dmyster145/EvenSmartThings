@@ -243,6 +243,18 @@ export async function getSessionStatus(): Promise<SessionStatus> {
   return parseJsonResponse<SessionStatus>(response);
 }
 
+/** Public voice-config endpoint (no auth/credentials). Returns the raw JSON;
+ *  the caller validates it with parseVoiceConfig. Best-effort — failures are
+ *  swallowed by the caller (offline → bundled/cached config). */
+export async function getVoiceConfig(): Promise<unknown> {
+  const response = await fetchWithTimeout(
+    `${API_BASE}/api/voice-config`,
+    { headers: { Accept: 'application/json' } },
+    BACKEND_FETCH_TIMEOUT_MS,
+  );
+  return parseJsonResponse<unknown>(response);
+}
+
 export async function getSmartThingsAccessToken(): Promise<AccessTokenResponse> {
   const response = await fetchWithTimeout(
     `${API_BASE}/api/smartthings/access-token`,

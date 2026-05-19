@@ -8,42 +8,7 @@
  * each catalog entry by token overlap + substring + edit-distance similarity.
  */
 
-import {
-  tokenize,
-  SCENE_WORDS,
-  ON_WORDS,
-  OFF_WORDS,
-  ROOM_WORDS,
-  FILLER_WORDS,
-  GENERIC_NAME_TOKENS,
-  OPEN_WORDS,
-  CLOSE_WORDS,
-  LOCK_WORDS,
-  UNLOCK_WORDS,
-  PLAY_WORDS,
-  PAUSE_WORDS,
-  STOP_WORDS,
-  MUTE_WORDS,
-  UNMUTE_WORDS,
-  VOLUME_WORDS,
-  VOLUME_UP_WORDS,
-  VOLUME_DOWN_WORDS,
-  PRESS_WORDS,
-  WARMER_WORDS,
-  COOLER_WORDS,
-  FASTER_WORDS,
-  SLOWER_WORDS,
-  MODE_HEAT_WORDS,
-  MODE_COOL_WORDS,
-  MODE_AUTO_WORDS,
-  NEXT_WORDS,
-  PREV_WORDS,
-  TRACK_STRONG_WORDS,
-  LEVEL_WORDS,
-  NUMBER_WORD_SET,
-  parseLevelPercent,
-  normalizeText,
-} from './grammar';
+import { defaultGrammar, type Grammar, normalizeText } from './grammar';
 
 /** Capabilities the voice layer can drive, per device. */
 export interface VoiceDeviceCaps {
@@ -100,12 +65,6 @@ export type VoiceMatch =
   | { type: 'room'; id: string; name: string; action?: 'on' | 'off'; level?: number }
   | { type: 'none'; reason: string };
 
-/** Min score to accept a match; below this we report "no match".
- *  0.6 (not 0.5): a single shared generic word like "lights" yields ~0.5 — too
- *  weak to fire (it once mis-routed "lab lights off" to "Hallway Lights").
- *  Exact / substring / close-edit matches still clear this comfortably. */
-const MATCH_MIN = 0.6;
-
 function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
   if (!a.length) return b.length;
@@ -123,17 +82,21 @@ function levenshtein(a: string, b: string): number {
   return prev[b.length]!;
 }
 
-function tokenWeight(t: string): number {
-  return GENERIC_NAME_TOKENS.has(t) ? 0.35 : 1;
-}
-
-/** 0–1 similarity between a spoken name phrase and a catalog entry name. */
-export function scoreName(queryPhrase: string, entryName: string): number {
+/** 0–1 similarity between a spoken name phrase and a catalog entry name.
+ *  `grammar` supplies the generic-token set + its weight (default = bundled,
+ *  so existing 2-arg callers/tests are unaffected). */
+export function scoreName(
+  queryPhrase: string,
+  entryName: string,
+  grammar: Grammar = defaultGrammar,
+): number {
   const q = normalizeText(queryPhrase);
   const n = normalizeText(entryName);
   if (!q || !n) return 0;
   if (q === n) return 1;
 
+  const tokenWeight = (t: string): number =>
+    grammar.GENERIC_NAME_TOKENS.has(t) ? grammar.genericTokenWeight : 1;
   const qSet = new Set(q.split(' '));
   const nSet = new Set(n.split(' '));
   let qW = 0;
@@ -168,13 +131,17 @@ interface Scored { id: string; name: string; score: number }
 /** Highest-scoring entry at/above the threshold, or null. No ambiguity prompt —
  *  on-device there's no way to answer "did you mean…", so we always commit to
  *  the best guess; a wrong guess just means tap + speak again. */
-function bestOf(entries: Array<{ id: string; name: string }>, phrase: string): Scored | null {
+function bestOf(
+  entries: Array<{ id: string; name: string }>,
+  phrase: string,
+  grammar: Grammar,
+): Scored | null {
   let best: Scored | null = null;
   for (const e of entries) {
-    const score = scoreName(phrase, e.name);
+    const score = scoreName(phrase, e.name, grammar);
     if (!best || score > best.score) best = { id: e.id, name: e.name, score };
   }
-  return best && best.score >= MATCH_MIN ? best : null;
+  return best && best.score >= grammar.matchMin ? best : null;
 }
 
 type CapKey = keyof VoiceDeviceCaps;
@@ -183,16 +150,26 @@ type CapKey = keyof VoiceDeviceCaps;
 function capable(d: VoiceCatalogDevice, key: CapKey): boolean {
   return !d.caps || d.caps[key] === true;
 }
-function bestDevice(devices: VoiceCatalogDevice[], phrase: string, key: CapKey): Scored | null {
+function bestDevice(
+  devices: VoiceCatalogDevice[],
+  phrase: string,
+  key: CapKey,
+  grammar: Grammar,
+): Scored | null {
   if (!phrase) return null;
-  return bestOf(devices.filter((d) => capable(d, key)), phrase);
+  return bestOf(devices.filter((d) => capable(d, key)), phrase, grammar);
 }
 /** Single best device matching ANY of the given capabilities (used by the
  *  relative-from-state controls, which are read-modify-write per device and so
  *  act on the best match rather than batching across duplicates). */
-function bestDeviceAny(devices: VoiceCatalogDevice[], phrase: string, keys: CapKey[]): Scored | null {
+function bestDeviceAny(
+  devices: VoiceCatalogDevice[],
+  phrase: string,
+  keys: CapKey[],
+  grammar: Grammar,
+): Scored | null {
   if (!phrase) return null;
-  return bestOf(devices.filter((d) => !d.caps || keys.some((k) => d.caps![k] === true)), phrase);
+  return bestOf(devices.filter((d) => !d.caps || keys.some((k) => d.caps![k] === true)), phrase, grammar);
 }
 function dev1(s: Scored, action: DeviceAction, level?: number): VoiceMatch {
   return { type: 'device', id: s.id, name: s.name, action, ...(level !== undefined ? { level } : {}) };
@@ -206,8 +183,9 @@ function bestDeviceGroup(
   devices: VoiceCatalogDevice[],
   phrase: string,
   key: CapKey,
+  grammar: Grammar,
 ): DeviceGroup | null {
-  const best = bestDevice(devices, phrase, key);
+  const best = bestDevice(devices, phrase, key, grammar);
   if (!best) return null;
   const target = normalizeText(best.name);
   const ids = devices
@@ -229,15 +207,15 @@ function deviceMatch(g: DeviceGroup, action: DeviceAction, level?: number): Voic
 /** Level only when there's an explicit cue (a LEVEL word like "percent", or
  *  "to <n>") so a number inside a device name ("Bedroom 2") isn't read as a
  *  brightness. Returns 0–100 or null. */
-function extractLevel(tokens: string[]): number | null {
-  const hasLevelWord = tokens.some((t) => LEVEL_WORDS.has(t));
+function extractLevel(tokens: string[], grammar: Grammar): number | null {
+  const hasLevelWord = tokens.some((t) => grammar.LEVEL_WORDS.has(t));
   const toIdx = tokens.lastIndexOf('to');
   // Require an explicit cue ("to <n>" or a level word) so a number inside a
   // device name ("Bedroom 2") is never read as a brightness.
   if (!hasLevelWord && toIdx < 0) return null;
   // "set X to 75", "X to twenty percent" — number right after "to".
   if (toIdx >= 0) {
-    const n = parseLevelPercent(tokens.slice(toIdx + 1));
+    const n = grammar.parseLevelPercent(tokens.slice(toIdx + 1));
     if (n !== null) return n;
   }
   // "X 20 percent" — number just before the unit word.
@@ -245,13 +223,13 @@ function extractLevel(tokens: string[]): number | null {
     (t) => t === 'percent' || t === 'percentage' || t === 'pct',
   );
   if (unitIdx > 0) {
-    const n = parseLevelPercent(tokens.slice(Math.max(0, unitIdx - 2), unitIdx));
+    const n = grammar.parseLevelPercent(tokens.slice(Math.max(0, unitIdx - 2), unitIdx));
     if (n !== null) return n;
   }
   // "dim X 75" — number right after the level word.
-  const lvlIdx = tokens.findIndex((t) => LEVEL_WORDS.has(t));
+  const lvlIdx = tokens.findIndex((t) => grammar.LEVEL_WORDS.has(t));
   if (lvlIdx >= 0) {
-    const n = parseLevelPercent(tokens.slice(lvlIdx + 1, lvlIdx + 3));
+    const n = grammar.parseLevelPercent(tokens.slice(lvlIdx + 1, lvlIdx + 3));
     if (n !== null) return n;
   }
   return null;
@@ -261,37 +239,43 @@ function extractLevel(tokens: string[]): number | null {
  * @param transcript final recognizer text
  * @param catalog the user's current scenes / devices / rooms (display names)
  */
-export function matchVoiceCommand(transcript: string, catalog: VoiceCatalog): VoiceMatch {
-  const tokens = tokenize(transcript);
+export function matchVoiceCommand(
+  transcript: string,
+  catalog: VoiceCatalog,
+  grammar: Grammar = defaultGrammar,
+): VoiceMatch {
+  const tokens = grammar.tokenize(transcript);
   if (tokens.length === 0) return { type: 'none', reason: 'Nothing heard' };
 
   const has = (set: Set<string>) => tokens.some((t) => set.has(t));
-  const explicitOff = has(OFF_WORDS);
-  const explicitOn = has(ON_WORDS);
-  const wantScene = has(SCENE_WORDS);
-  const wantRoom = has(ROOM_WORDS);
+  const explicitOff = has(grammar.OFF_WORDS);
+  const explicitOn = has(grammar.ON_WORDS);
+  const wantScene = has(grammar.SCENE_WORDS);
+  const wantRoom = has(grammar.ROOM_WORDS);
 
   // Scene names frequently embed the action ("Lab: OFF", "All Lights On"), so
   // keep on/off words when matching SCENES; strip them for device/room names
   // (the device is "Lab Lights"; the on/off is the separate action).
   const scenePhrase = tokens
-    .filter((t) => !FILLER_WORDS.has(t) && !SCENE_WORDS.has(t) && !ROOM_WORDS.has(t))
+    .filter((t) => !grammar.FILLER_WORDS.has(t) && !grammar.SCENE_WORDS.has(t) && !grammar.ROOM_WORDS.has(t))
     .join(' ');
   // Strip every command/verb word so only the entity name remains. Digits are
   // kept (device names like "Bedroom 2"); the dim-level branch uses its own
   // number-stripped phrase.
   const isVerb = (t: string): boolean =>
-    FILLER_WORDS.has(t) || SCENE_WORDS.has(t) || ON_WORDS.has(t) || OFF_WORDS.has(t) ||
-    ROOM_WORDS.has(t) || OPEN_WORDS.has(t) || CLOSE_WORDS.has(t) || LOCK_WORDS.has(t) ||
-    UNLOCK_WORDS.has(t) || PLAY_WORDS.has(t) || PAUSE_WORDS.has(t) || STOP_WORDS.has(t) ||
-    MUTE_WORDS.has(t) || UNMUTE_WORDS.has(t) || NEXT_WORDS.has(t) || PREV_WORDS.has(t) ||
-    VOLUME_WORDS.has(t) || VOLUME_UP_WORDS.has(t) || VOLUME_DOWN_WORDS.has(t) ||
-    PRESS_WORDS.has(t) || WARMER_WORDS.has(t) || COOLER_WORDS.has(t) ||
-    FASTER_WORDS.has(t) || SLOWER_WORDS.has(t) || MODE_HEAT_WORDS.has(t) ||
-    MODE_COOL_WORDS.has(t) || MODE_AUTO_WORDS.has(t) || LEVEL_WORDS.has(t);
+    grammar.FILLER_WORDS.has(t) || grammar.SCENE_WORDS.has(t) || grammar.ON_WORDS.has(t) ||
+    grammar.OFF_WORDS.has(t) || grammar.ROOM_WORDS.has(t) || grammar.OPEN_WORDS.has(t) ||
+    grammar.CLOSE_WORDS.has(t) || grammar.LOCK_WORDS.has(t) || grammar.UNLOCK_WORDS.has(t) ||
+    grammar.PLAY_WORDS.has(t) || grammar.PAUSE_WORDS.has(t) || grammar.STOP_WORDS.has(t) ||
+    grammar.MUTE_WORDS.has(t) || grammar.UNMUTE_WORDS.has(t) || grammar.NEXT_WORDS.has(t) ||
+    grammar.PREV_WORDS.has(t) || grammar.VOLUME_WORDS.has(t) || grammar.VOLUME_UP_WORDS.has(t) ||
+    grammar.VOLUME_DOWN_WORDS.has(t) || grammar.PRESS_WORDS.has(t) || grammar.WARMER_WORDS.has(t) ||
+    grammar.COOLER_WORDS.has(t) || grammar.FASTER_WORDS.has(t) || grammar.SLOWER_WORDS.has(t) ||
+    grammar.MODE_HEAT_WORDS.has(t) || grammar.MODE_COOL_WORDS.has(t) ||
+    grammar.MODE_AUTO_WORDS.has(t) || grammar.LEVEL_WORDS.has(t);
   const namePhrase = tokens.filter((t) => !isVerb(t)).join(' ');
   const levelNamePhrase = tokens
-    .filter((t) => !isVerb(t) && !/^\d{1,3}$/.test(t) && !NUMBER_WORD_SET.has(t))
+    .filter((t) => !isVerb(t) && !/^\d{1,3}$/.test(t) && !grammar.NUMBER_WORD_SET.has(t))
     .join(' ');
   if (!scenePhrase && !namePhrase && !levelNamePhrase) {
     return { type: 'none', reason: 'No name in command' };
@@ -301,85 +285,87 @@ export function matchVoiceCommand(transcript: string, catalog: VoiceCatalog): Vo
   // These run BEFORE on/off because several words overlap (close=off,
   // open=room-nav, stop=off): a capable device wins; otherwise we fall
   // through so the overloaded word keeps its old meaning.
-  const level = explicitOn || explicitOff ? null : extractLevel(tokens);
+  const level = explicitOn || explicitOff ? null : extractLevel(tokens, grammar);
   if (level !== null) {
     // Dim a device-group OR a whole room ("kitchen to 30%" = the Kitchen room;
     // "kitchen lights to 30%" = every device named "Kitchen Lights").
-    const d = bestDeviceGroup(catalog.devices, levelNamePhrase, 'dimmer');
-    const r = levelNamePhrase ? bestOf(catalog.rooms, levelNamePhrase) : null;
+    const d = bestDeviceGroup(catalog.devices, levelNamePhrase, 'dimmer', grammar);
+    const r = levelNamePhrase ? bestOf(catalog.rooms, levelNamePhrase, grammar) : null;
     if (r && (!d || r.score >= d.score)) {
       return { type: 'room', id: r.id, name: r.name, level };
     }
     if (d) return deviceMatch(d, 'level', level);
     // "set the blinds to 40 percent" → windowShadeLevel (absolute).
-    const sh = bestDeviceAny(catalog.devices, levelNamePhrase, ['shadeLevel']);
+    const sh = bestDeviceAny(catalog.devices, levelNamePhrase, ['shadeLevel'], grammar);
     if (sh) return dev1(sh, 'shadeLevel', level);
     // An explicit "set … to N%" with nothing dimmable must NOT silently fall
     // through to on/off — that would fire the wrong action on a wrong device.
     return { type: 'none', reason: `Nothing to set for “${levelNamePhrase}”` };
   }
-  if (has(WARMER_WORDS) || has(COOLER_WORDS)) {
+  if (has(grammar.WARMER_WORDS) || has(grammar.COOLER_WORDS)) {
     // Routed in app.ts: colorTemperature on a bulb, else thermostat setpoint.
-    const s = bestDeviceAny(catalog.devices, namePhrase, ['colorTemp', 'thermostatSet']);
-    if (s) return dev1(s, has(WARMER_WORDS) ? 'warmer' : 'cooler');
+    const s = bestDeviceAny(catalog.devices, namePhrase, ['colorTemp', 'thermostatSet'], grammar);
+    if (s) return dev1(s, has(grammar.WARMER_WORDS) ? 'warmer' : 'cooler');
     return { type: 'none', reason: `Nothing to adjust for “${namePhrase}”` }; // terminal
   }
-  if (has(FASTER_WORDS) || has(SLOWER_WORDS)) {
-    const s = bestDeviceAny(catalog.devices, namePhrase, ['fanSpeed']);
-    if (s) return dev1(s, has(FASTER_WORDS) ? 'faster' : 'slower');
+  if (has(grammar.FASTER_WORDS) || has(grammar.SLOWER_WORDS)) {
+    const s = bestDeviceAny(catalog.devices, namePhrase, ['fanSpeed'], grammar);
+    if (s) return dev1(s, has(grammar.FASTER_WORDS) ? 'faster' : 'slower');
     return { type: 'none', reason: `No fan for “${namePhrase}”` }; // terminal
   }
-  if (has(MODE_HEAT_WORDS) || has(MODE_COOL_WORDS) || has(MODE_AUTO_WORDS)) {
-    const s = bestDeviceAny(catalog.devices, namePhrase, ['thermostatMode']);
+  if (has(grammar.MODE_HEAT_WORDS) || has(grammar.MODE_COOL_WORDS) || has(grammar.MODE_AUTO_WORDS)) {
+    const s = bestDeviceAny(catalog.devices, namePhrase, ['thermostatMode'], grammar);
     if (s) {
-      const a = has(MODE_AUTO_WORDS) ? 'modeAuto' : has(MODE_COOL_WORDS) ? 'modeCool' : 'modeHeat';
+      const a = has(grammar.MODE_AUTO_WORDS)
+        ? 'modeAuto'
+        : has(grammar.MODE_COOL_WORDS) ? 'modeCool' : 'modeHeat';
       return dev1(s, a);
     }
     return { type: 'none', reason: `No thermostat for “${namePhrase}”` }; // terminal
   }
-  if (has(LOCK_WORDS) || has(UNLOCK_WORDS)) {
-    const d = bestDeviceGroup(catalog.devices, namePhrase, 'lock');
-    if (d) return deviceMatch(d, has(UNLOCK_WORDS) ? 'unlock' : 'lock');
+  if (has(grammar.LOCK_WORDS) || has(grammar.UNLOCK_WORDS)) {
+    const d = bestDeviceGroup(catalog.devices, namePhrase, 'lock', grammar);
+    if (d) return deviceMatch(d, has(grammar.UNLOCK_WORDS) ? 'unlock' : 'lock');
   }
-  if (has(NEXT_WORDS) || has(PREV_WORDS)) {
-    const d = bestDeviceGroup(catalog.devices, namePhrase, 'track');
+  if (has(grammar.NEXT_WORDS) || has(grammar.PREV_WORDS)) {
+    const d = bestDeviceGroup(catalog.devices, namePhrase, 'track', grammar);
     // "skip back" → previous (an explicit prev word wins over a next word).
-    if (d) return deviceMatch(d, has(PREV_WORDS) ? 'prev' : 'next');
+    if (d) return deviceMatch(d, has(grammar.PREV_WORDS) ? 'prev' : 'next');
     // Terminal only for an unambiguous track word ("office next") — never fall
     // through to a default power-on. A weak-only phrase ("back porch") falls
     // through so it can still match a normal device/room.
-    if (has(TRACK_STRONG_WORDS)) {
+    if (has(grammar.TRACK_STRONG_WORDS)) {
       return { type: 'none', reason: `Nothing to skip for “${namePhrase}”` };
     }
   }
-  if (has(PLAY_WORDS) || has(PAUSE_WORDS) || has(STOP_WORDS)) {
-    const d = bestDeviceGroup(catalog.devices, namePhrase, 'media');
-    if (d) return deviceMatch(d, has(PAUSE_WORDS) ? 'pause' : has(STOP_WORDS) ? 'stop' : 'play');
+  if (has(grammar.PLAY_WORDS) || has(grammar.PAUSE_WORDS) || has(grammar.STOP_WORDS)) {
+    const d = bestDeviceGroup(catalog.devices, namePhrase, 'media', grammar);
+    if (d) return deviceMatch(d, has(grammar.PAUSE_WORDS) ? 'pause' : has(grammar.STOP_WORDS) ? 'stop' : 'play');
   }
-  if (has(MUTE_WORDS) || has(UNMUTE_WORDS)) {
-    const d = bestDeviceGroup(catalog.devices, namePhrase, 'mute');
-    if (d) return deviceMatch(d, has(UNMUTE_WORDS) ? 'unmute' : 'mute');
+  if (has(grammar.MUTE_WORDS) || has(grammar.UNMUTE_WORDS)) {
+    const d = bestDeviceGroup(catalog.devices, namePhrase, 'mute', grammar);
+    if (d) return deviceMatch(d, has(grammar.UNMUTE_WORDS) ? 'unmute' : 'mute');
   }
-  if (has(VOLUME_WORDS)) {
-    const d = bestDeviceGroup(catalog.devices, namePhrase, 'volume');
-    if (d) return deviceMatch(d, has(VOLUME_DOWN_WORDS) ? 'volumeDown' : 'volumeUp');
+  if (has(grammar.VOLUME_WORDS)) {
+    const d = bestDeviceGroup(catalog.devices, namePhrase, 'volume', grammar);
+    if (d) return deviceMatch(d, has(grammar.VOLUME_DOWN_WORDS) ? 'volumeDown' : 'volumeUp');
     return { type: 'none', reason: `No speaker for “${namePhrase}”` }; // terminal
   }
-  if (has(PRESS_WORDS)) {
-    const d = bestDeviceGroup(catalog.devices, namePhrase, 'press');
+  if (has(grammar.PRESS_WORDS)) {
+    const d = bestDeviceGroup(catalog.devices, namePhrase, 'press', grammar);
     if (d) return deviceMatch(d, 'press');
     return { type: 'none', reason: `Nothing to press for “${namePhrase}”` }; // terminal
   }
-  if (has(OPEN_WORDS) || has(CLOSE_WORDS)) {
-    const d = bestDeviceGroup(catalog.devices, namePhrase, 'openClose');
-    if (d) return deviceMatch(d, has(CLOSE_WORDS) ? 'close' : 'open');
+  if (has(grammar.OPEN_WORDS) || has(grammar.CLOSE_WORDS)) {
+    const d = bestDeviceGroup(catalog.devices, namePhrase, 'openClose', grammar);
+    if (d) return deviceMatch(d, has(grammar.CLOSE_WORDS) ? 'close' : 'open');
   }
   // ------------------------------------------------------------------------
 
-  const sceneR = scenePhrase ? bestOf(catalog.scenes, scenePhrase) : null;
-  const deviceG = bestDeviceGroup(catalog.devices, namePhrase, 'switch');
+  const sceneR = scenePhrase ? bestOf(catalog.scenes, scenePhrase, grammar) : null;
+  const deviceG = bestDeviceGroup(catalog.devices, namePhrase, 'switch', grammar);
   const deviceR = deviceG ? { id: deviceG.id, name: deviceG.name, score: deviceG.score } : null;
-  const roomR = namePhrase ? bestOf(catalog.rooms, namePhrase) : null;
+  const roomR = namePhrase ? bestOf(catalog.rooms, namePhrase, grammar) : null;
 
   // Explicit on/off ⇒ an action-named scene ("Lab: OFF"), a single device, or
   // a whole room ("office on" = switch every switchable device in the room).

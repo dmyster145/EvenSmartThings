@@ -11,6 +11,7 @@ import {
   handleSessionRequest,
   handleSmartThingsExecuteRequest,
   handleSmartAppWebhookRequest,
+  handleVoiceConfigRequest,
 } from './route-handlers.js';
 
 const config = getServerConfig();
@@ -24,6 +25,7 @@ const routeHandlers = new Map([
   ['/api/auth/smartthings/start', handleAuthStartRequest],
   ['/api/auth/smartthings/callback', handleAuthCallbackRequest],
   ['/api/smartapp', handleSmartAppWebhookRequest],
+  ['/api/voice-config', handleVoiceConfigRequest],
 ]);
 
 const server = createServer(async (request, response) => {

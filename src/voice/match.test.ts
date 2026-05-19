@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { matchVoiceCommand, scoreName, type VoiceCatalog } from './match';
+import { createGrammar, defaultGrammar } from './grammar';
+import { defaultVoiceConfig } from './config';
 
 // @regression — the voice resolver product rules:
 //  • "run/activate <name>" or a bare scene name → run that scene
@@ -429,5 +431,78 @@ describe('@regression matchVoiceCommand', () => {
     expect(fam).toBeGreaterThan(all);
     // And a generic-only overlap stays weak (no mis-fire).
     expect(scoreName('lab lights', 'Hallway Lights')).toBeLessThan(0.6);
+  });
+});
+
+// @regression — the grammar is now injectable. Prove (a) the optional default
+// equals the bundled config so the 80+ legacy 2-arg calls are unaffected, and
+// (b) a downloaded config actually replaces (not merges) the vocabulary and
+// tunables.
+describe('@regression injectable grammar', () => {
+  const cat: VoiceCatalog = {
+    scenes: [{ id: 's', name: 'Movie Night' }],
+    rooms: [{ id: 'r', name: 'Kitchen' }],
+    devices: [{ id: 'kl', name: 'Kitchen Lights', caps: { switch: true } }],
+  };
+
+  it('2-arg call == 3-arg defaultGrammar (back-compat default)', () => {
+    for (const cmd of ['turn on kitchen lights', 'run movie night', 'open kitchen', 'kitchen on']) {
+      expect(matchVoiceCommand(cmd, cat)).toEqual(matchVoiceCommand(cmd, cat, defaultGrammar));
+    }
+    expect(scoreName('movie', 'Movie Night')).toBe(scoreName('movie', 'Movie Night', defaultGrammar));
+  });
+
+  it('replaces (not merges) the OFF vocabulary', () => {
+    const g = createGrammar({ ...defaultVoiceConfig, offWords: ['disengage'] });
+    expect(matchVoiceCommand('disengage kitchen lights', cat, g)).toMatchObject({
+      type: 'device', id: 'kl', action: 'off',
+    });
+    // bundled "off" no longer means off → bare-name default 'on', not 'off'.
+    const r = matchVoiceCommand('turn off kitchen lights', cat, g);
+    expect(r.type === 'device' && r.action).toBe('on');
+  });
+
+  it('honors an injected match threshold', () => {
+    const devOnly: VoiceCatalog = {
+      scenes: [], rooms: [],
+      devices: [{ id: 'kl', name: 'Kitchen Lights', caps: { switch: true } }],
+    };
+    const strict = createGrammar({ ...defaultVoiceConfig, matchMin: 0.99 });
+    // A fuzzy/edit-distance match ("lites") that clears 0.6 fails at 0.99.
+    expect(matchVoiceCommand('turn on kitchen lites', devOnly).type).toBe('device');
+    expect(matchVoiceCommand('turn on kitchen lites', devOnly, strict).type).toBe('none');
+  });
+
+  it('historically-fixed behaviors still hold under defaultGrammar', () => {
+    const c: VoiceCatalog = {
+      scenes: [
+        { id: 'allOff', name: 'All lights: OFF' },
+        { id: 'famOff', name: 'Family Room: OFF' },
+      ],
+      rooms: [{ id: 'fam', name: 'Family Room' }, { id: 'kr', name: 'Kitchen' }],
+      devices: [
+        ...Array.from({ length: 6 }, (_, i) => ({
+          id: `kl${i}`, name: 'Kitchen Lights', caps: { switch: true, dimmer: true },
+        })),
+        { id: 'sp', name: 'Office', caps: { media: true, track: true } },
+        { id: 'bl', name: 'Office Blinds', caps: { openClose: true, shadeLevel: true } },
+        { id: 'p', name: 'Porch Light', caps: { switch: true } },
+      ],
+    };
+    expect(matchVoiceCommand('turn off family room lights', c, defaultGrammar)).toMatchObject({
+      type: 'scene', id: 'famOff',
+    });
+    const six = matchVoiceCommand('turn off kitchen lights', c, defaultGrammar);
+    expect(six.type === 'device' && six.ids?.length).toBe(6);
+    expect(matchVoiceCommand('kitchen to 30 percent', c, defaultGrammar)).toMatchObject({
+      type: 'room', id: 'kr', level: 30,
+    });
+    expect(matchVoiceCommand('office next', c, defaultGrammar)).toMatchObject({
+      type: 'device', id: 'sp', action: 'next',
+    });
+    expect(matchVoiceCommand('set office blinds to 40 percent', c, defaultGrammar)).toMatchObject({
+      type: 'device', id: 'bl', action: 'shadeLevel', level: 40,
+    });
+    expect(matchVoiceCommand('porch light warmer', c, defaultGrammar).type).toBe('none');
   });
 });

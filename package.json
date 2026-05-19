@@ -1,6 +1,6 @@
 {
   "name": "smartthings-controls",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -18,9 +18,9 @@
     "preview": "vite preview",
     "lint": "eslint src/ server/ api/",
     "test": "vitest run",
-    "test:unit": "vitest run src/lifecycle/resume-scheduler.test.ts src/render/composer.test.ts src/devices/normalize.test.ts",
+    "test:unit": "vitest run src/lifecycle/resume-scheduler.test.ts src/render/composer.test.ts src/devices/normalize.test.ts src/voice/config.test.ts src/voice/grammar.test.ts",
     "test:smoke": "vitest run -t \"@smoke\"",
-    "test:e2e": "vitest run src/lifecycle/resume-lifecycle.e2e.test.ts",
+    "test:e2e": "vitest run src/lifecycle/resume-lifecycle.e2e.test.ts src/voice/config-lifecycle.e2e.test.ts src/voice/voice-config-route.e2e.test.ts",
     "test:regression": "vitest run -t \"@regression\"",
     "version": "node scripts/sync-app-version.mjs && git add app.json"
   },
