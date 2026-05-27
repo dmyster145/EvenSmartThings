@@ -165,7 +165,7 @@ function IntroCard(): ReactElement {
           </span>
           <div>
             <p className="text-[11px] tracking-[-0.11px] uppercase text-text-dim">Even Hub Companion</p>
-            <h1 className="text-[20px] tracking-[-0.6px] font-normal text-text">SmartThings Control</h1>
+            <h1 className="text-[20px] tracking-[-0.6px] font-normal text-text">SmartThings</h1>
           </div>
         </div>
         <Badge variant="accent">Companion</Badge>

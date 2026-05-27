@@ -113,8 +113,8 @@ function getSmartAppInitializeResponse() {
   return {
     configurationData: {
       initialize: {
-        name: 'SmartThings Control',
-        description: 'SmartThings Control for Even Realities G2 glasses',
+        name: 'SmartThings',
+        description: 'SmartThings for Even Realities G2 glasses',
         id: 'smartthings-controls',
         permissions: [],
         firstPageId: 'main',
@@ -128,7 +128,7 @@ function getSmartAppPageResponse(pageId) {
     configurationData: {
       page: {
         pageId: pageId || 'main',
-        name: 'SmartThings Control',
+        name: 'SmartThings',
         nextPageId: null,
         previousPageId: null,
         complete: true,
