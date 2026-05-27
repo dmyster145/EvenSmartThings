@@ -80,6 +80,32 @@ describe('voice controller state machine', () => {
     expect(audioControl).not.toHaveBeenCalled();
   });
 
+  it('@regression start() before warm shows "Please wait…" and auto-starts when the model loads', async () => {
+    const { deps, audioControl, onStatus, onListenStart } = makeDeps();
+    const c = createVoiceController(deps);
+    expect(c.start()).toBe(false); // deferred — no second tap required
+    expect(onStatus).toHaveBeenCalledWith('Please wait…');
+    expect(audioControl).not.toHaveBeenCalled();
+    c.warm();
+    await flush();
+    // Model is ready → auto-start fires; mic opens and listening is announced.
+    expect(audioControl).toHaveBeenCalledWith(true);
+    expect(onListenStart).toHaveBeenCalledOnce();
+    expect(c.isListening()).toBe(true);
+  });
+
+  it('@regression a second tap while waiting cancels the pending auto-start', async () => {
+    const { deps, audioControl, onListenStart } = makeDeps();
+    const c = createVoiceController(deps);
+    c.start(); // pending
+    c.start(); // toggle: cancels the pending start
+    c.warm();
+    await flush();
+    expect(audioControl).not.toHaveBeenCalled();
+    expect(onListenStart).not.toHaveBeenCalled();
+    expect(c.isListening()).toBe(false);
+  });
+
   it('start() returns false when not eligible even after warm', async () => {
     const { deps, audioControl } = makeDeps({ isEligible: () => false });
     const c = createVoiceController(deps);

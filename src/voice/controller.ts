@@ -92,6 +92,11 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
   let starting = false;
   let listening = false;
   let finalizing = false;
+  // The user tapped "Tap to speak" before the offline model finished loading;
+  // we auto-start listening as soon as ensureRecognizer() resolves, so no
+  // second tap is needed. Cleared on cancel, a second tap (toggle), model
+  // failure, or successful auto-start.
+  let pendingStart = false;
 
   let heardSpeech = false;
   let lastVoiceAt = 0;
@@ -167,11 +172,26 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
         `grammar source=${deps.grammarProvenance ?? 'bundled'} silenceMs=${t.silenceMs}`
           + ` maxListenMs=${t.maxListenMs}`,
       );
+      // If the user tapped "Tap to speak" while we were warming, auto-start
+      // listening now — no second tap required.
+      if (pendingStart) {
+        pendingStart = false;
+        if (isEligible() && !listening && !starting) {
+          log('auto-starting deferred listen');
+          start();
+        } else {
+          log('deferred start discarded — no longer eligible');
+        }
+      }
       return recognizer;
     } catch (err) {
       console.error('[voice] model load failed:', err);
       log(`model load FAILED: ${err instanceof Error ? err.message : String(err)}`);
       modelFailed = true;
+      if (pendingStart) {
+        pendingStart = false;
+        onStatus('Voice model unavailable');
+      }
       return null;
     }
   }
@@ -191,10 +211,18 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
       onStatus('Voice model unavailable');
       return false;
     }
+    if (pendingStart) {
+      // Second tap while waiting → cancel the pending auto-start.
+      pendingStart = false;
+      log('pending start cancelled by second tap');
+      onStatus('');
+      return false;
+    }
     if (!recognizer) {
-      log('start deferred: model still loading (tap again)');
+      log('start deferred: model still loading — will auto-start when ready');
+      pendingStart = true;
+      onStatus('Please wait…');
       warm();
-      onStatus('Preparing voice… tap again');
       return false;
     }
     starting = true;
@@ -236,13 +264,19 @@ export function createVoiceController(deps: VoiceControllerDeps): VoiceControlle
   }
 
   function cancel(): void {
-    if (!listening && !starting) return;
+    // A pending auto-start is also a cancellable "intent to listen".
+    if (!listening && !starting && !pendingStart) return;
+    if (pendingStart) {
+      pendingStart = false;
+      log('pending start cancelled');
+    }
     log('listening cancelled (tap/navigation)');
     endSession();
     onStatus('');
   }
 
   function dispose(): void {
+    pendingStart = false;
     endSession();
     recognizer?.dispose();
     recognizer = null;
