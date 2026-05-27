@@ -659,6 +659,88 @@ export async function handleSmartThingsExecuteRequest(request, response) {
       return json(response, 200, { requestId: relayContext.requestId, items });
     }
 
+    if (
+      kind === 'list-locations' ||
+      kind === 'list-rooms' ||
+      kind === 'list-devices' ||
+      kind === 'list-room-devices'
+    ) {
+      // Direct browser→api.smartthings.com for locations/rooms/devices has the
+      // SAME network-layer failure pattern that originally drove scenes onto
+      // the relay (TLS/redirect/CORS/reset for some WebViews). Routing through
+      // the server bypasses it and lets us follow `_links.next` pagination
+      // safely by stripping any internal-host href (see list-scenes above).
+      const toPublicPath = (href) => {
+        try {
+          const u = new URL(href);
+          let path = `${u.pathname}${u.search}`;
+          if (path.startsWith('/v1/')) path = path.slice(3);
+          return path || null;
+        } catch {
+          return null;
+        }
+      };
+      let startPath;
+      if (kind === 'list-locations') {
+        startPath = '/locations';
+        logRelay('dispatch', relayContext, `list-locations`);
+      } else {
+        const locationId = typeof body?.locationId === 'string' ? body.locationId.trim() : '';
+        if (!locationId) {
+          logRelay('invalid', relayContext, `reason=missing-locationId kind=${kind}`);
+          return json(response, 400, { requestId: relayContext.requestId, error: 'locationId is required' });
+        }
+        if (kind === 'list-rooms') {
+          startPath = `/locations/${encodeURIComponent(locationId)}/rooms`;
+          logRelay('dispatch', relayContext, `list-rooms locationId=${locationId}`);
+        } else if (kind === 'list-room-devices') {
+          const roomId = typeof body?.roomId === 'string' ? body.roomId.trim() : '';
+          if (!roomId) {
+            logRelay('invalid', relayContext, `reason=missing-roomId kind=${kind}`);
+            return json(response, 400, { requestId: relayContext.requestId, error: 'roomId is required' });
+          }
+          startPath = `/locations/${encodeURIComponent(locationId)}/rooms/${encodeURIComponent(roomId)}/devices`;
+          logRelay('dispatch', relayContext, `list-room-devices locationId=${locationId} roomId=${roomId}`);
+        } else {
+          const includeHealth = body?.includeHealth === true;
+          startPath = `/devices?locationId=${encodeURIComponent(locationId)}${includeHealth ? '&includeHealth=true' : ''}`;
+          logRelay('dispatch', relayContext, `list-devices locationId=${locationId} includeHealth=${includeHealth}`);
+        }
+      }
+      const items = [];
+      let next = startPath;
+      let pageGuard = 0;
+      while (next && pageGuard < 50) {
+        pageGuard += 1;
+        const result = await smartThingsApiRequest(session, next);
+        if (!result.ok) {
+          const detail = result.networkError
+            ? `network: ${result.networkError}`
+            : smartThingsErrorMessage(result.payload, result.status);
+          logRelay(
+            'response',
+            relayContext,
+            `${kind} status=${result.status} ok=false page=${pageGuard} collected=${items.length} ${result.networkError ? `netErr=${result.networkError}` : ''}`
+          );
+          if (items.length > 0) {
+            logRelay('response', relayContext, `${kind} status=200 ok=true partial items=${items.length}`);
+            return json(response, 200, { requestId: relayContext.requestId, items, partial: true });
+          }
+          return json(response, result.status, {
+            requestId: relayContext.requestId,
+            error: `${kind} ${detail}`,
+            response: result.payload,
+          });
+        }
+        const pageItems = Array.isArray(result.payload?.items) ? result.payload.items : [];
+        for (const item of pageItems) items.push(item);
+        const nextHref = result.payload?._links?.next?.href;
+        next = typeof nextHref === 'string' && nextHref ? toPublicPath(nextHref) : null;
+      }
+      logRelay('response', relayContext, `${kind} status=200 ok=true items=${items.length} pages=${pageGuard}`);
+      return json(response, 200, { requestId: relayContext.requestId, items });
+    }
+
     logRelay('invalid', relayContext, 'reason=unsupported-kind');
     return json(response, 400, { requestId: relayContext.requestId, error: 'Unsupported command kind' });
   } catch (err) {

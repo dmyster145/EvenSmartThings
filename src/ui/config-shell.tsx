@@ -487,6 +487,19 @@ function ConnectionTab(): ReactElement {
         </div>
       </SurfaceCard>
 
+      <SectionHeader title="Device Definitions" />
+      <SurfaceCard>
+        <p className="text-[15px] tracking-[-0.15px] text-text">
+          Pull the latest scenes, rooms, and devices from SmartThings. Use this if newly added items aren't showing on the glasses or device totals look wrong.
+        </p>
+        <p id="refresh-definitions-status" role="status" aria-live="polite" className="mt-4" />
+        <div className="btn-group mt-4">
+          <Button id="refresh-definitions-btn" type="button" variant="secondary">
+            Refresh definitions
+          </Button>
+        </div>
+      </SurfaceCard>
+
       <SectionHeader title="Companion Access" />
       <InfoRows label="Operational Notes" rows={CONNECTION_ROWS} />
 

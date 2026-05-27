@@ -74,6 +74,10 @@ import {
   executeDeviceCommandViaServer,
   executeSceneViaServer,
   listScenesViaServer,
+  listLocationsViaServer,
+  listRoomsViaServer,
+  listDevicesViaServer,
+  listRoomDevicesViaServer,
   getSessionStatus,
   getVoiceConfig,
   getSmartThingsAccessToken,
@@ -108,6 +112,7 @@ import {
 import { getStoredPreferences, setStoredPreferences } from './state/preferences-storage';
 import { createResumeScheduler } from './lifecycle/resume-scheduler';
 import { installResumeLifecycle } from './lifecycle/install-resume-lifecycle';
+import { createKeepAlive } from './lifecycle/keep-alive';
 import { hasCredentialSignal } from './auth/credential-signal';
 import { classifyTap } from './input/tap-dedup';
 import { createVoiceController } from './voice/controller';
@@ -1113,6 +1118,46 @@ export async function initApp(): Promise<void> {
     reconnectBtn.onclick = () => { void startOAuthConnect(); };
   }
 
+  // Manual "Refresh definitions" — re-pulls scenes/rooms/devices via the
+  // server relay (invalidating the memoized locationId), updates the on-device
+  // cache, and re-renders the glasses. Use when newly added SmartThings items
+  // aren't showing or counts look stale. Idempotent; safe to tap repeatedly.
+  const refreshDefsBtn = document.getElementById('refresh-definitions-btn') as HTMLButtonElement | null;
+  const refreshDefsStatusEl = document.getElementById('refresh-definitions-status');
+  if (refreshDefsBtn) {
+    refreshDefsBtn.onclick = async () => {
+      refreshDefsBtn.disabled = true;
+      const setStatus = (m: string): void => {
+        if (refreshDefsStatusEl) refreshDefsStatusEl.textContent = m;
+      };
+      setStatus('Refreshing…');
+      appendDebugLog('[RefreshDefs] User requested refresh of scenes / rooms / devices.', true);
+      store.dispatch({ type: 'LISTS_REFRESH_START' });
+      refreshPage();
+      // Force the memoized lookup + loader gates to re-run from scratch.
+      locationIdPromise = null;
+      scenesLoaded = false;
+      roomsLoaded = false;
+      scenesSettled = false;
+      roomsSettled = false;
+      listCacheWritten = false;
+      try {
+        await Promise.all([loadScenes(), loadRooms()]);
+        const st = store.getState();
+        const msg = `Refreshed: ${st.scenes.length} scenes · ${st.rooms.length} rooms · ${st.allDevices.length} devices.`;
+        setStatus(msg);
+        appendDebugLog(`[RefreshDefs] ${msg}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setStatus(`Refresh failed: ${message}`);
+        appendDebugLog(`[RefreshDefs] Failed: ${message}`, true);
+      } finally {
+        refreshDefsBtn.disabled = false;
+        refreshPage();
+      }
+    };
+  }
+
   // "Open on Mac / Tablet" — generates the OAuth start URL and shows it for the user
   // to open on another device. The pending auth mechanism delivers the session back
   // to this device once OAuth completes on the other device.
@@ -1612,9 +1657,11 @@ export async function initApp(): Promise<void> {
         return;
       }
       appendDebugLog(`Rooms load: locationId=${locationId.slice(0, 8)}…`);
+      // Server relay (not direct SDK) for the same browser-network reasons as
+      // locations/scenes above.
       const [roomsRes, devicesRes] = await Promise.all([
-        withSmartThingsClient((client) => client.rooms.list(locationId)),
-        withSmartThingsClient((client) => client.devices.list({ locationId }).catch(() => [])),
+        listRoomsViaServer(locationId).then((r) => r.items ?? []),
+        listDevicesViaServer(locationId).then((r) => r.items ?? []).catch(() => [] as unknown[]),
       ]);
       appendDebugLog(`Rooms load: success rooms=${roomsRes.length} devices=${devicesRes.length}`);
       store.dispatch({
@@ -1627,7 +1674,7 @@ export async function initApp(): Promise<void> {
           ...(DEMO_DEVICES_ENABLED ? [{ roomId: DEMO_ROOM_ID, roomName: 'Demo Devices' }] : []),
         ],
       });
-      store.dispatch({ type: 'ALL_DEVICES_LOADED', devices: normalizeDevices(devicesRes) });
+      store.dispatch({ type: 'ALL_DEVICES_LOADED', devices: normalizeDevices(devicesRes as unknown as Device[]) });
       roomsLoaded = true;
       roomsSettled = true;
       maybePersistListCache();
@@ -1655,25 +1702,35 @@ export async function initApp(): Promise<void> {
   function getLocationId(): Promise<string | undefined> {
     if (!locationIdPromise) {
       locationIdPromise = (async () => {
+        // Use the server relay (not the direct SDK call) — direct browser→
+        // api.smartthings.com fails with status=n/a Network Error for some
+        // WebViews (TLS/redirect/CORS/reset). Same fix that originally moved
+        // scenes onto the relay. Fallback derives locationId from scenes
+        // (also via relay) for accounts whose /locations is empty.
         try {
-          const locations = await withSmartThingsClient((client) => client.locations.list());
+          const res = await listLocationsViaServer();
+          const locations = res.items ?? [];
           appendDebugLog(`Locations load: success n=${locations.length}`);
-          return locations[0]?.locationId;
+          if (locations[0]?.locationId) return locations[0].locationId;
+          appendDebugLog('Locations load: empty (falling back to scenes.list via relay)', true);
         } catch (err) {
           const status = (err as { status?: unknown; statusCode?: unknown })?.status
             ?? (err as { status?: unknown; statusCode?: unknown })?.statusCode;
-          appendDebugLog(`Locations load: failed status=${status ?? 'n/a'} message=${getErrorMessage(err)} (falling back to scenes.list)`, true);
-          try {
-            const scenes = await withSmartThingsClient((client) => client.scenes.list());
-            return scenes[0]?.locationId;
-          } catch (err2) {
-            const status2 = (err2 as { status?: unknown; statusCode?: unknown })?.status
-              ?? (err2 as { status?: unknown; statusCode?: unknown })?.statusCode;
-            appendDebugLog(`Locations fallback (scenes.list): failed status=${status2 ?? 'n/a'} message=${getErrorMessage(err2)}`, true);
-            locationIdPromise = null; // allow a later retry
-            return undefined;
-          }
+          appendDebugLog(`Locations load: failed status=${status ?? 'n/a'} message=${getErrorMessage(err)} (falling back to scenes.list via relay)`, true);
         }
+        try {
+          const r = await listScenesViaServer();
+          const items = r.items ?? [];
+          const lid = items.find((s) => typeof s.locationId === 'string')?.locationId;
+          if (lid) return lid;
+          appendDebugLog('Locations fallback (scenes.list): no locationId in scenes', true);
+        } catch (err2) {
+          const status2 = (err2 as { status?: unknown; statusCode?: unknown })?.status
+            ?? (err2 as { status?: unknown; statusCode?: unknown })?.statusCode;
+          appendDebugLog(`Locations fallback (scenes.list): failed status=${status2 ?? 'n/a'} message=${getErrorMessage(err2)}`, true);
+        }
+        locationIdPromise = null; // allow a later retry
+        return undefined;
       })();
     }
     return locationIdPromise;
@@ -1805,9 +1862,10 @@ export async function initApp(): Promise<void> {
     try {
       const locationId = await getLocationId();
       if (!locationId) return;
-      const devices = await withSmartThingsClient((client) =>
-        client.devices.list({ locationId, includeHealth: true })
-      );
+      // Server relay (sidesteps direct browser→api.smartthings.com network
+      // failures). includeHealth=true keeps the inline-health optimization.
+      const dRes = await listDevicesViaServer(locationId, { includeHealth: true });
+      const devices = (dRes.items ?? []) as Device[];
       let online = 0;
       let offline = 0;
       for (const d of devices) {
@@ -2630,8 +2688,10 @@ export async function initApp(): Promise<void> {
         devices = DEMO_DEVICES;
       } else {
         const locationId = await getLocationId();
-        const raw = await withSmartThingsClient((client) => client.rooms.listDevices(roomId, locationId));
-        devices = normalizeDevices(raw);
+        if (!locationId) return null;
+        // Server relay (same browser-network sidestep as locations/rooms/scenes).
+        const res = await listRoomDevicesViaServer(locationId, roomId);
+        devices = normalizeDevices((res.items ?? []) as unknown as Device[]);
       }
       return devices.filter(pred).map((d) => d.deviceId);
     } catch (err) {
@@ -2648,8 +2708,17 @@ export async function initApp(): Promise<void> {
     }
     try {
       const locationId = await getLocationId();
-      const devices = await withSmartThingsClient((client) => client.rooms.listDevices(roomId, locationId));
-      store.dispatch({ type: 'DEVICES_LOADED', devices: normalizeDevices(devices) });
+      if (!locationId) {
+        store.dispatch({ type: 'DEVICES_ERROR', message: 'No location found for room' });
+        refreshPage();
+        return;
+      }
+      // Server relay (sidesteps direct browser→api.smartthings.com failures).
+      const res = await listRoomDevicesViaServer(locationId, roomId);
+      store.dispatch({
+        type: 'DEVICES_LOADED',
+        devices: normalizeDevices((res.items ?? []) as unknown as Device[]),
+      });
       refreshPage();
       void loadRoomStats();
     } catch (err) {
@@ -3423,11 +3492,24 @@ export async function initApp(): Promise<void> {
     appendDebugLog(`Launch source received: ${source}`);
   });
 
+  // Keep-alive (ported from EvenChess) — a silent audio oscillator + a held
+  // Web Lock soften the WebView's timer/network throttling when the Even App
+  // is backgrounded (improves resume-from-glance and watchdog responsiveness).
+  // AudioContext requires a user-gesture context, so we arm it one-shot on
+  // the first glasses event below — the same context that already lets
+  // voiceController open the mic.
+  const keepAlive = createKeepAlive({ log: (m) => appendDebugLog(m) });
+  let keepAliveArmed = false;
+
   function handleHubEvent(event: EvenHubEvent): void {
     // Any glasses event = the user has interacted. Cancel the pending
     // launch-preference override so we don't snap them back to the default
     // view after they've already navigated.
     userHasInteracted = true;
+    if (!keepAliveArmed) {
+      keepAliveArmed = true;
+      keepAlive.activate();
+    }
     // Voice PCM arrives on this same event stream. Route it straight to the
     // recognizer (bypassing the input mapper) and never let it fall through.
     const audioEvent = (event as { audioEvent?: { audioPcm?: unknown } }).audioEvent;
@@ -3935,6 +4017,7 @@ export async function initApp(): Promise<void> {
       void releaseWakeLock('beforeunload');
       voiceController.dispose();
       disposeResumeLifecycle();
+      keepAlive.deactivate();
     });
     // pagehide also fires when the WebView is evicted without a beforeunload.
     window.addEventListener('pagehide', () => {

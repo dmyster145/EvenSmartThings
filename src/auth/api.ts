@@ -42,7 +42,21 @@ export type SmartThingsBatchRelayResponse = {
 
 export type SmartThingsSceneListResponse = {
   requestId?: string;
-  items?: Array<{ sceneId?: string; sceneName?: string }>;
+  items?: Array<{ sceneId?: string; sceneName?: string; locationId?: string }>;
+};
+export type SmartThingsLocationListResponse = {
+  requestId?: string;
+  items?: Array<{ locationId?: string; name?: string }>;
+};
+export type SmartThingsRoomListResponse = {
+  requestId?: string;
+  items?: Array<{ roomId?: string; name?: string }>;
+};
+/** Devices come back with the full raw SmartThings shape (components etc.);
+ *  the caller hands them to normalizeDevices and doesn't touch fields here. */
+export type SmartThingsDeviceListResponse = {
+  requestId?: string;
+  items?: unknown[];
 };
 
 declare const __API_BASE_URL__: string;
@@ -393,6 +407,36 @@ export async function listScenesViaServer(locationId?: string): Promise<SmartThi
   return executeSmartThingsRelayRequest<SmartThingsSceneListResponse>({
     kind: 'list-scenes',
     ...(locationId ? { locationId } : {}),
+  });
+}
+
+/** Same browser-network sidestep as listScenesViaServer, for catalog calls
+ *  that have started failing for some WebViews with status=n/a Network Error.
+ *  The server follows pagination and sanitizes internal-host next-hrefs. */
+export async function listLocationsViaServer(): Promise<SmartThingsLocationListResponse> {
+  return executeSmartThingsRelayRequest<SmartThingsLocationListResponse>({ kind: 'list-locations' });
+}
+export async function listRoomsViaServer(locationId: string): Promise<SmartThingsRoomListResponse> {
+  return executeSmartThingsRelayRequest<SmartThingsRoomListResponse>({ kind: 'list-rooms', locationId });
+}
+export async function listDevicesViaServer(
+  locationId: string,
+  options?: { includeHealth?: boolean },
+): Promise<SmartThingsDeviceListResponse> {
+  return executeSmartThingsRelayRequest<SmartThingsDeviceListResponse>({
+    kind: 'list-devices',
+    locationId,
+    ...(options?.includeHealth ? { includeHealth: true } : {}),
+  });
+}
+export async function listRoomDevicesViaServer(
+  locationId: string,
+  roomId: string,
+): Promise<SmartThingsDeviceListResponse> {
+  return executeSmartThingsRelayRequest<SmartThingsDeviceListResponse>({
+    kind: 'list-room-devices',
+    locationId,
+    roomId,
   });
 }
 
