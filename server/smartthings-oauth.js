@@ -28,7 +28,17 @@ async function exchangeToken(config, params) {
       : typeof payload.error === 'string'
         ? payload.error
         : `SmartThings token exchange failed with status ${response.status}`;
-    throw new Error(message);
+    const err = new Error(message);
+    err.status = response.status;
+    const oauthError = typeof payload.error === 'string' ? payload.error : '';
+    err.oauthError = oauthError;
+    // Distinguish a definitive rejection (the refresh token is dead — expired,
+    // revoked, or already consumed by a rotation) from a transient failure
+    // (5xx, rate limit, network). Only the former should invalidate the stored
+    // session; a transient blip must not log the user out. `invalid_grant` is
+    // OAuth's canonical "this grant / refresh token is no longer valid" signal.
+    err.isAuthError = oauthError === 'invalid_grant' || response.status === 401 || response.status === 403;
+    throw err;
   }
 
   return {
@@ -70,23 +80,63 @@ export async function refreshAccessToken(config, refreshToken) {
   return exchangeToken(config, params);
 }
 
+// Refresh once the access token is expired or within this window of expiring.
+const REFRESH_SKEW_MS = 60_000;
+
+/**
+ * True when a session's access token is missing/expired or close enough to
+ * expiry that it should be refreshed before use. Exported so the request layer
+ * can tell whether a session another request left behind is already fresh.
+ */
+export function sessionNeedsRefresh(session) {
+  const expiresAtMs = Date.parse(session?.expiresAt ?? '');
+  return Number.isNaN(expiresAtMs) || expiresAtMs <= Date.now() + REFRESH_SKEW_MS;
+}
+
+// In-process single-flight for token refreshes, keyed by sessionId. On app open
+// the client fires several authenticated requests in parallel (session, scenes,
+// rooms, devices). SmartThings refresh tokens are single-use and rotate on every
+// refresh, so if each request refreshed independently only the first would
+// succeed and the rest would get `invalid_grant` — needlessly invalidating a
+// session that was just refreshed. Coalescing to one refresh per session per
+// process removes that self-inflicted race within an instance.
+const inFlightRefreshes = new Map();
+
 export async function ensureFreshSession(config, store, session) {
-  const expiresAtMs = Date.parse(session.expiresAt ?? '');
-  const shouldRefresh = Number.isNaN(expiresAtMs) || expiresAtMs <= Date.now() + 60_000;
-  if (!shouldRefresh) return session;
+  if (!sessionNeedsRefresh(session)) return session;
   // PAT sessions have no refreshToken — cannot be refreshed. Return as-is; if the PAT
   // is expired/revoked the next SmartThings API call will fail with 401 and the session
   // will be cleared by the caller.
   if (!session.refreshToken) return session;
 
-  const refreshed = await refreshAccessToken(config, session.refreshToken);
-  const nextSession = {
-    ...session,
-    accessToken: refreshed.accessToken,
-    refreshToken: refreshed.refreshToken || session.refreshToken,
-    expiresAt: refreshed.expiresAt,
-    scope: refreshed.scope,
-    tokenType: refreshed.tokenType,
-  };
-  return store.putSession(nextSession);
+  const key = session.sessionId;
+  const existing = key ? inFlightRefreshes.get(key) : null;
+  if (existing) return existing;
+
+  const refreshPromise = (async () => {
+    const refreshed = await refreshAccessToken(config, session.refreshToken);
+    const nextSession = {
+      ...session,
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken || session.refreshToken,
+      expiresAt: refreshed.expiresAt,
+      scope: refreshed.scope,
+      tokenType: refreshed.tokenType,
+    };
+    return store.putSession(nextSession);
+  })();
+
+  if (key) {
+    inFlightRefreshes.set(key, refreshPromise);
+    // Clear the slot once settled so a later (post-rotation) refresh can run.
+    // Swallow here so the cleanup chain never surfaces an unhandled rejection;
+    // the awaited callers still observe the real outcome.
+    refreshPromise
+      .catch(() => {})
+      .finally(() => {
+        if (inFlightRefreshes.get(key) === refreshPromise) inFlightRefreshes.delete(key);
+      });
+  }
+
+  return refreshPromise;
 }

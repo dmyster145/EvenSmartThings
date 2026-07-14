@@ -1,6 +1,6 @@
 {
   "name": "smartthings-controls",
-  "version": "2.1.4",
+  "version": "2.1.6",
   "private": true,
   "type": "module",
   "engines": {
@@ -25,7 +25,7 @@
     "version": "node scripts/sync-app-version.mjs && git add app.json"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "^0.0.10",
+    "@evenrealities/even_hub_sdk": "^0.0.12",
     "@smartthings/core-sdk": "^4.0.0",
     "buffer": "^6.0.3",
     "class-variance-authority": "^0.7.1",

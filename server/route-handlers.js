@@ -14,7 +14,12 @@ import {
 } from './http-utils.js';
 import { getServerConfig, isSmartThingsConfigured } from './config.js';
 import { createSessionStore } from './session-store.js';
-import { buildAuthorizeUrl, ensureFreshSession, exchangeAuthorizationCode } from './smartthings-oauth.js';
+import {
+  buildAuthorizeUrl,
+  ensureFreshSession,
+  exchangeAuthorizationCode,
+  sessionNeedsRefresh,
+} from './smartthings-oauth.js';
 import { VOICE_CONFIG_PAYLOAD } from './voice-config.js';
 
 const config = getServerConfig();
@@ -188,6 +193,23 @@ function sessionSummary(session) {
 // handleSessionRequest also surfaces it as sessionExpired: true to the client.
 const REFRESH_EXPIRED = Object.freeze({ __refreshExpired: true });
 
+// Re-read the session and return it when a concurrent request has already
+// refreshed it to a fresh (non-expired) token. The client fires several
+// authenticated requests in parallel on open; because SmartThings refresh
+// tokens are single-use, only one of a racing set can refresh — the rest see
+// `invalid_grant`. Before treating that as a dead session we check whether a
+// sibling already installed a new token. A second read after a short delay
+// absorbs cross-instance write lag between the winning refresh and its store
+// write (in-process races are already coalesced by ensureFreshSession).
+async function recoverConcurrentlyRefreshedSession(sessionId) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const latest = await store.getSession(sessionId).catch(() => null);
+    if (latest && !sessionNeedsRefresh(latest)) return latest;
+    if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return null;
+}
+
 async function getAuthenticatedSession(request) {
   const cookies = parseCookies(request);
   const sessionId = cookies[config.sessionCookieName] || parseSessionFromBearer(request);
@@ -197,12 +219,25 @@ async function getAuthenticatedSession(request) {
   try {
     session = await ensureFreshSession(config, store, session);
   } catch (err) {
-    // Token refresh failed (e.g. refresh token expired after 30 days of inactivity,
-    // or SmartThings rejected it). Clear the dead session and return a sentinel so
-    // the session endpoint can inform the client to show a specific "expired" message.
-    console.warn('[smartthings-controls-server] Token refresh failed; clearing session:', err);
-    await store.deleteSession(sessionId).catch(() => {});
-    return REFRESH_EXPIRED;
+    // Token refresh failed. Do NOT reflexively delete the session — that turned
+    // a routine refresh race into a forced re-authentication. Instead:
+    //   1. A concurrent request may have already rotated the token — recover it.
+    //   2. A definitive rejection (invalid_grant / 401 / 403) means the refresh
+    //      token is genuinely dead (expired after 30 days, or revoked) — clear it.
+    //   3. A transient failure (network / 5xx / rate limit) must NOT destroy a
+    //      still-valid session; keep it so the next request can refresh, and just
+    //      report not-authenticated for now.
+    const recovered = await recoverConcurrentlyRefreshedSession(sessionId);
+    if (recovered) {
+      session = recovered;
+    } else if (err && err.isAuthError) {
+      console.warn('[smartthings-controls-server] Token refresh rejected; clearing session:', err);
+      await store.deleteSession(sessionId).catch(() => {});
+      return REFRESH_EXPIRED;
+    } else {
+      console.warn('[smartthings-controls-server] Token refresh failed transiently; preserving session:', err);
+      return REFRESH_EXPIRED;
+    }
   }
   if (shouldTouchSession(session)) {
     session = (await store.touchSession(sessionId)) ?? session;

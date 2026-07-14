@@ -10,7 +10,7 @@ import {
   type EvenAppBridge as EvenAppBridgeType,
   type CreateStartUpPageContainer,
   type RebuildPageContainer,
-  type ImageRawDataUpdate,
+  ImageRawDataUpdate,
   type EvenHubEvent,
   type DeviceInfo,
   type LaunchSource,
@@ -57,6 +57,43 @@ function withBleTimeout<T>(p: Promise<T>, ms: number, opName: string): Promise<T
       (err) => { clearTimeout(timer); reject(err); },
     );
   });
+}
+
+// ── SDK 0.0.12 image workaround ───────────────────────────────────────────────
+
+/**
+ * Strip the mislabeled `compressMode: 2` that @evenrealities/even_hub_sdk@0.0.12
+ * stamps onto uncompressed image payloads.
+ *
+ * 0.0.12's `ImageRawDataUpdate.toJson()` — the static serializer the SDK's own
+ * `updateImageRawData()` calls before postMessage-ing to native — unconditionally
+ * sets `compressMode: 2` (LZ4). But the shipped bundle contains no LZ4 code at all
+ * (`grep -i lz4 dist/index.js` → nothing); the bytes go out uncompressed. The host
+ * then sees raw BMP/PNG bytes labeled LZ4, tries to decompress, and rejects every
+ * image with `sendFailed` while text keeps working. Wrapping the static toJson to
+ * delete the field restores the exact pre-0.0.12 wire shape, which every current
+ * host accepts. ES-module export identity means the SDK's internal toJson call
+ * resolves to this same (patched) method.
+ *
+ * Idempotent and defensive: no-ops if the method shape ever changes. Remove once
+ * the SDK ships real LZ4 compression or stops tagging uncompressed data. See also
+ * the `pack` script / package.json SDK pin.
+ */
+function patchImageCompressModeBug(): void {
+  const cls = ImageRawDataUpdate as unknown as {
+    toJson?: (model?: unknown) => Record<string, unknown>;
+    __compressModePatched?: boolean;
+  };
+  if (typeof cls.toJson !== 'function' || cls.__compressModePatched) return;
+  const orig = cls.toJson.bind(ImageRawDataUpdate);
+  cls.toJson = (model?: unknown) => {
+    const json = orig(model);
+    if (json && typeof json === 'object' && 'compressMode' in json) {
+      delete (json as Record<string, unknown>).compressMode;
+    }
+    return json;
+  };
+  cls.__compressModePatched = true;
 }
 
 // ── Internal types ────────────────────────────────────────────────────────────
@@ -126,6 +163,9 @@ export class EvenHubBridge {
   /** @param timeoutMs If the bridge is not ready after this many ms, treat as no bridge (e.g. in a normal browser). Use a longer default so the Even App WebView has time to inject the bridge. */
   async init(timeoutMs: number = 10000): Promise<void> {
     try {
+      // Strip the mislabeled compressMode:2 that SDK 0.0.12 puts on uncompressed
+      // image payloads — must run before the first updateImageRawData. Idempotent.
+      patchImageCompressModeBug();
       this.unsubscribeLaunchSource?.();
       this.unsubscribeLaunchSource = null;
       // Reset page-lifecycle state — the new bridge instance has no startup
